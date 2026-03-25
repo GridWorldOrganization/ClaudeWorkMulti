@@ -14,7 +14,7 @@ ChatWorkWebHookClient/
 ├── setup_windows.bat          # 初回セットアップ（AWS CLI設定等）
 ├── config.env                 # 環境変数（※自分で作成。Gitに含まれない）
 ├── config.env.example         # ↑のテンプレート
-├── clients/
+├── members/
 │   ├── 00_common_rules.md     # 全メンバー共通ルール（Gitに含まれる）
 │   ├── templates/             # ペルソナ設定テンプレート（Gitに含まれる）
 │   │   ├── 01_persona.md.example
@@ -71,7 +71,7 @@ REPLY_COOLDOWN_SECONDS=15
 #### 方法A: setup_member.bat を使う
 
 ```
-cd clients\templates
+cd members\templates
 setup_member.bat
 ```
 
@@ -80,16 +80,16 @@ setup_member.bat
 #### 方法B: 手動作成
 
 ```
-mkdir clients\01_yokota
-copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
+mkdir members\01_yokota
+copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 ```
 
 ### 5. ペルソナを設定
 
-`clients\01_yokota\01_persona.md` をテキストエディタで開き、キャラクター設定を記入します。
+`members\01_yokota\01_persona.md` をテキストエディタで開き、キャラクター設定を記入します。
 
 設定項目: 性格・話し方・趣味・最近の出来事・口癖・苦手なもの等。
-詳細は `clients/templates/01_persona.md.example` を参照。
+詳細は `members/templates/01_persona.md.example` を参照。
 
 > メンバーフォルダ（`01_yokota/` 等）は `.gitignore` 対象です。ペルソナにはトークンや個人的な設定が含まれるためGitには含まれません。
 
@@ -105,8 +105,8 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
   FOLLOWUP_WAIT_SECONDS=30秒
   MAX_AI_CONVERSATION_TURNS=10ターン
   REPLY_COOLDOWN_SECONDS=15秒
-  横田 百恵 (01_yokota): 指示ファイル 1件, cwd=...\clients\01_yokota
-  藤野 楓 (02_fujino): 指示ファイル 1件, cwd=...\clients\02_fujino
+  横田 百恵 (01_yokota): 指示ファイル 1件, cwd=...\members\01_yokota
+  藤野 楓 (02_fujino): 指示ファイル 1件, cwd=...\members\02_fujino
 ```
 
 ## 動作の仕組み
@@ -117,7 +117,7 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
 2. 宛先メンバーごとにメッセージをグループ化
 3. メンバーごとに**並列**で以下を実行：
    - 複数メッセージが溜まっていた場合、先行分を文脈として含め、最後の1件に対して返信
-   - `clients/00_common_rules.md` + メンバー個別の `.md` をプロンプトに組み込む
+   - `members/00_common_rules.md` + メンバー個別の `.md` をプロンプトに組み込む
    - Claude Code（`claude -p`）を実行して返信文を生成
 4. Chatwork API 経由でルームに返信（`[rp]` タグ自動付与）
 
@@ -172,8 +172,8 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
 **メンバーのデフォルトモード（メンバーフォルダ内の `mode.txt`）:**
 
 ```
-clients/01_yokota/mode.txt  ← 中身: 2（ペルソナモード）
-clients/02_fujino/mode.txt  ← 中身: 1（業務モード）
+members/01_yokota/mode.txt  ← 中身: 2（ペルソナモード）
+members/02_fujino/mode.txt  ← 中身: 1（業務モード）
 ```
 
 `mode.txt` がなければデフォルト1（業務）。数字1文字だけ書く。
@@ -193,7 +193,7 @@ ROOM_MODES_FUJINO=426936385:2,427388771:0
 
 ## メンバーの追加方法
 
-1. `clients/templates/setup_member.bat` でフォルダ作成
+1. `members/templates/setup_member.bat` でフォルダ作成
 2. `01_persona.md` にキャラクター設定を記入
 3. `windows_poller.py` の `MEMBERS` に新メンバーを追加
 4. `config.env` に `CW_TOKEN_新メンバー=...` を追加

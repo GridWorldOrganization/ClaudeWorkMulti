@@ -2,7 +2,7 @@
 Chatwork Webhook SQS Poller for Windows PC
 SQSキューからメッセージをバッチ取得し、メンバーごとに並列でClaude Codeを実行する
 ※ メンバーごとに別スレッド・別cwdで並列実行（同一メンバーは排他制御）
-※ clients/00_common_rules.md + メンバー個別の .md でAIの振る舞いを制御
+※ members/00_common_rules.md + メンバー個別の .md でAIの振る舞いを制御
 ※ Claude Code の出力を担当者として Chatwork に返信（[rp]タグ自動付与）
 ※ エラー時はグリ姉アカウントでエラー報告ルームに通知
 """
@@ -43,7 +43,7 @@ CW_ERROR_ROOM_ID = int(os.environ.get("CW_ERROR_ROOM_ID", "0"))
 
 # 担当者設定（フォルダ名 → 設定）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CLIENTS_DIR = os.path.join(SCRIPT_DIR, "clients")
+MEMBERS_DIR = os.path.join(SCRIPT_DIR, "members")
 
 def _parse_room_ids(env_key):
     """環境変数からルームIDリストをパース。空なら空セット（=全ルーム許可）"""
@@ -108,7 +108,7 @@ MEMBERS = {
         "name": "横田 百恵",
         "account_id": 11202266,
         "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
-        "dir": os.path.join(CLIENTS_DIR, "01_yokota"),
+        "dir": os.path.join(MEMBERS_DIR, "01_yokota"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_YOKOTA"),
         "room_modes": _parse_room_modes("ROOM_MODES_YOKOTA"),
     },
@@ -116,7 +116,7 @@ MEMBERS = {
         "name": "藤野 楓",
         "account_id": 11204912,
         "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
-        "dir": os.path.join(CLIENTS_DIR, "02_fujino"),
+        "dir": os.path.join(MEMBERS_DIR, "02_fujino"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_FUJINO"),
         "room_modes": _parse_room_modes("ROOM_MODES_FUJINO"),
     },
@@ -266,8 +266,8 @@ def gather_room_context(token, room_id):
 def load_instructions(member_dir, room_id=""):
     """共通指示 + メンバー固有指示 + ルーム固有指示を読み込んで指示文を構築"""
     instructions = []
-    # 1. 共通ルール（clients直下の 00_ で始まる .md のみ）を読み込む
-    common_md_files = sorted(glob.glob(os.path.join(CLIENTS_DIR, "00_*.md")))
+    # 1. 共通ルール（members直下の 00_ で始まる .md のみ）を読み込む
+    common_md_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
     # 2. メンバー固有の .md を読み込む（room_*.md と chat_history_*.md は除外）
     member_md_files = sorted([
         f for f in glob.glob(os.path.join(member_dir, "*.md"))
@@ -347,7 +347,7 @@ def handle_status_command(member, room_id):
     lines.append(f"[info][title]/status: {member['name']}[/title]")
 
     # 共通ルール
-    common_files = sorted(glob.glob(os.path.join(CLIENTS_DIR, "00_*.md")))
+    common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
     lines.append(f"■ 共通ルール: {len(common_files)}件")
     for f in common_files:
         name = os.path.basename(f)

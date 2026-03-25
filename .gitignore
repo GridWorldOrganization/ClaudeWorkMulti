@@ -1,4 +1,4 @@
-clients/[0-9][0-9]_*/
+members/[0-9][0-9]_*/
 *.log
 log_state.json
 log.md
