@@ -24,6 +24,7 @@ QUEUE_URL = "https://sqs.ap-northeast-1.amazonaws.com/REDACTED_AWS_ACCOUNT_ID/ch
 POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = "claude"
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
+MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
 
 # フォローアップ検出キーワード
 FOLLOWUP_KEYWORDS = [
@@ -59,6 +60,12 @@ MEMBERS = {
 
 # account_id → メンバー設定の逆引き
 ACCOUNT_TO_MEMBER = {m["account_id"]: m for m in MEMBERS.values()}
+ALL_MEMBER_IDS = {str(m["account_id"]) for m in MEMBERS.values()}
+
+# 会話チェーン管理（ルームごとのAI同士往復カウンタ）
+# key: room_id, value: {"count": int, "last_human_time": float}
+_conversation_chains = {}
+_chain_lock = threading.Lock()
 
 # ===== ログ設定 =====
 logging.basicConfig(
@@ -90,6 +97,27 @@ def notify_error(title, detail):
     """グリ姉のアカウントでエラー報告"""
     msg = f"[info][title]{title}[/title]{detail}[/info]"
     chatwork_post(CW_TOKEN_GURIKO, CW_ERROR_ROOM_ID, msg)
+
+def check_ai_conversation_allowed(room_id, sender):
+    """AI同士の会話が許可されているか判定。人間の発言でカウンタリセット"""
+    with _chain_lock:
+        sender_is_ai = str(sender) in ALL_MEMBER_IDS
+        if not sender_is_ai:
+            # 人間からの発言: カウンタリセット
+            _conversation_chains[str(room_id)] = {"count": 0, "last_human_time": time.time()}
+            return True
+        # AIからの発言: カウンタチェック
+        chain = _conversation_chains.get(str(room_id))
+        if not chain:
+            # 人間が起点の会話チェーンがない → 拒否
+            log.info(f"AI発言だが会話チェーンなし: room={room_id}, sender={sender}")
+            return False
+        chain["count"] += 1
+        if chain["count"] > MAX_AI_CONVERSATION_TURNS:
+            log.info(f"AI会話上限到達: room={room_id}, count={chain['count']}/{MAX_AI_CONVERSATION_TURNS}")
+            return False
+        log.info(f"AI会話許可: room={room_id}, count={chain['count']}/{MAX_AI_CONVERSATION_TURNS}")
+        return True
 
 def get_sender_name(token, room_id, sender_account_id):
     """送信者の表示名をルームメンバーから取得"""
@@ -241,10 +269,12 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # AIメンバー同士の会話は無視（無限ループ防止）
-    all_member_ids = {str(m["account_id"]) for m in MEMBERS.values()}
-    if str(sender) in all_member_ids:
-        log.info(f"AIメンバーからの発言のためスキップ: sender={sender}")
+    # 会話チェーン管理（AI同士の会話回数制御）
+    if not check_ai_conversation_allowed(room_id, sender):
+        # 上限到達時は終了メッセージを投稿
+        if str(sender) in ALL_MEMBER_IDS:
+            chatwork_post(member["cw_token"], room_id, "そろそろこの辺で！また話しましょう😊")
+            log.info(f"AI会話上限のため終了メッセージ投稿: {member['name']}")
         return
 
     member_dir = member["dir"]
@@ -433,11 +463,19 @@ def main():
             notify_error("起動エラー", f"作業フォルダが見つかりません: {member['dir']}")
             return
 
+    # 起動時にキューをパージ（前回の残留メッセージを削除）
+    try:
+        sqs.purge_queue(QueueUrl=QUEUE_URL)
+        log.info("起動時キューパージ完了")
+    except Exception as e:
+        log.warning(f"キューパージスキップ（前回パージから60秒以内の可能性）: {e}")
+
     log.info("=== Chatwork Webhook Poller 起動 ===")
     log.info(f"キュー: {QUEUE_URL}")
     log.info(f"ポーリング間隔: {POLL_INTERVAL}秒")
     log.info("モード: 並列処理（メンバーごとに別スレッドで Claude Code 実行、同一メンバーは排他制御）")
     log.info(f"フォローアップ待機: {FOLLOWUP_WAIT_SECONDS}秒")
+    log.info(f"AI会話上限: {MAX_AI_CONVERSATION_TURNS}ターン")
     log.info(f"登録メンバー数: {len(MEMBERS)}")
     for key, member in MEMBERS.items():
         md_files = glob.glob(os.path.join(member["dir"], "*.md"))
