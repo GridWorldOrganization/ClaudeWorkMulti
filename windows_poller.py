@@ -52,19 +52,6 @@ def _parse_room_ids(env_key):
         return set()
     return {s.strip() for s in val.split(",") if s.strip()}
 
-def _parse_talk_mode_rooms(env_key):
-    """環境変数からルームごとのモード設定をパース。形式: room_id:mode,room_id:mode"""
-    val = os.environ.get(env_key, "").strip()
-    if not val:
-        return {}
-    modes = {}
-    for pair in val.split(","):
-        pair = pair.strip()
-        if ":" in pair:
-            rid, mode = pair.split(":", 1)
-            modes[rid.strip()] = int(mode.strip())
-    return modes
-
 def _load_member_env(member_dir):
     """メンバーフォルダの mode.env を読み込んで dict で返す。なければ空dict"""
     mode_env = os.path.join(member_dir, "mode.env")
@@ -83,6 +70,30 @@ def _load_member_env(member_dir):
     except Exception as e:
         log.error(f"mode.env読み込みエラー: {mode_env}: {e}")
     return result
+
+def _load_talk_mode(member_dir, room_id=""):
+    """mode.envからTALK_MODEとルーム別モードを読み、該当モードを返す"""
+    env = _load_member_env(member_dir)
+    talk_mode_default = int(env.get("TALK_MODE", "1"))
+    # TALK_MODE_ルームID=モード の形式でルーム別設定を検出
+    if room_id:
+        room_key = f"TALK_MODE_{room_id}"
+        if room_key in env:
+            return int(env[room_key])
+    return talk_mode_default
+
+def _get_talk_mode_rooms(member_dir):
+    """mode.envからルーム別モード設定をdictで返す（/status表示用）"""
+    env = _load_member_env(member_dir)
+    rooms = {}
+    for key, val in env.items():
+        if key.startswith("TALK_MODE_") and key != "TALK_MODE":
+            rid = key[len("TALK_MODE_"):]
+            try:
+                rooms[rid] = int(val)
+            except ValueError:
+                pass
+    return rooms
 
 # 会話モード定義
 TALK_MODES = {
@@ -129,7 +140,6 @@ MEMBERS = {
         "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
         "dir": os.path.join(MEMBERS_DIR, "01_yokota"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_YOKOTA"),
-        "talk_mode_rooms": _parse_talk_mode_rooms("TALK_MODE_ROOMS_YOKOTA"),
     },
     "02_fujino": {
         "name": "藤野 楓",
@@ -137,7 +147,6 @@ MEMBERS = {
         "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
         "dir": os.path.join(MEMBERS_DIR, "02_fujino"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_FUJINO"),
-        "talk_mode_rooms": _parse_talk_mode_rooms("TALK_MODE_ROOMS_FUJINO"),
     },
 }
 
@@ -419,13 +428,14 @@ def handle_status_command(member, room_id):
     allowed = member.get("allowed_rooms", set())
     rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
     # モード設定
-    talk_mode_default = int(_load_member_env(member["dir"]).get("TALK_MODE", "1"))
-    talk_mode_rooms = member.get("talk_mode_rooms", {})
-    lines.append(f"\n■ 会話モード")
-    lines.append(f"  デフォルト: {talk_mode_default}({TALK_MODES.get(talk_mode_default, {}).get('name', '不明')})")
+    member_env = _load_member_env(member["dir"])
+    talk_mode_default = int(member_env.get("TALK_MODE", "1"))
+    talk_mode_rooms = _get_talk_mode_rooms(member["dir"])
+    lines.append(f"\n■ 会話モード (mode.env)")
+    lines.append(f"  TALK_MODE={talk_mode_default}({TALK_MODES.get(talk_mode_default, {}).get('name', '不明')})")
     if talk_mode_rooms:
         for rid, mode in sorted(talk_mode_rooms.items()):
-            lines.append(f"  ルーム {rid}: {mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
+            lines.append(f"  TALK_MODE_{rid}={mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
     else:
         lines.append(f"  ルーム別指定: なし")
 
@@ -553,10 +563,8 @@ def process_message(body: dict):
                 log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
                 time.sleep(wait)
 
-    # 会話モード決定（ルーム別 > メンバーフォルダのmode.env > 1）
-    talk_mode_rooms = member.get("talk_mode_rooms", {})
-    talk_mode_default = int(_load_member_env(member_dir).get("TALK_MODE", "1"))
-    talk_mode = talk_mode_rooms.get(str(room_id), talk_mode_default)
+    # 会話モード決定（TALK_MODE_ルームID > TALK_MODE > 1）
+    talk_mode = _load_talk_mode(member_dir, str(room_id))
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
 

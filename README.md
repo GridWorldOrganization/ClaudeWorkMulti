@@ -155,8 +155,6 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 | `FOLLOWUP_WAIT_SECONDS` | 30 | フォローアップ返信までの待機（秒） |
 | `MAX_AI_CONVERSATION_TURNS` | 10 | AI同士の会話上限メッセージ数 |
 | `REPLY_COOLDOWN_SECONDS` | 15 | 同一メンバーの連投防止クールダウン（秒） |
-| `TALK_MODE_ROOMS_YOKOTA` | (空) | 横田のルーム別モード |
-| `TALK_MODE_ROOMS_FUJINO` | (空) | 藤野のルーム別モード |
 | `MAINTENANCE_ROOM_ID` | (空) | /status コマンドを受け付けるルームID |
 | `CLAUDE_COMMAND` | claude | Claude Code のコマンドパス |
 
@@ -182,24 +180,20 @@ members/02_fujino/mode.env
 
 中身の例：
 ```env
-# 0=メンテナンス/1=業務/2=ペルソナ/3=ペルソナ+
+# デフォルト会話モード（0=メンテナンス/1=業務/2=ペルソナ/3=ペルソナ+）
 TALK_MODE=2
-```
 
-`mode.env` がなければデフォルト1（業務）。テンプレートは `members/templates/mode.env.example`。
-
-**ルーム別にモードを上書き（config.env）:**
-```env
-# 形式: ルームID:モード,ルームID:モード
-TALK_MODE_ROOMS_YOKOTA=426936385:2,427388771:1
-TALK_MODE_ROOMS_FUJINO=426936385:2,427388771:0
+# ルーム別に上書き（TALK_MODE_ルームID=モード）
+TALK_MODE_426936385=3
+TALK_MODE_427388771=1
 ```
 
 上記例だと:
-- 横田: ルーム426936385ではペルソナ、427388771では業務、その他はデフォルト
-- 藤野: ルーム426936385ではペルソナ、427388771ではメンテナンス、その他はデフォルト
+- ルーム426936385ではペルソナ+、427388771では業務、その他はTALK_MODE=2(ペルソナ)
 
-**優先順位:** ルーム別指定(config.env) > mode.env(メンバーフォルダ) > 1(業務)
+`mode.env` がなければデフォルト1（業務）。テンプレートは `members/templates/mode.env.example`。
+
+**優先順位:** TALK_MODE_ルームID > TALK_MODE > 1(業務)
 
 ## メンバーの追加方法
 
