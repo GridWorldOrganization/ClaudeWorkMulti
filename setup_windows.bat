@@ -86,19 +86,18 @@ echo   OK
 echo.
 
 REM ===== Step 5: AWS プロファイル設定 =====
-echo [5/5] AWS プロファイル設定中...
-if "%AWS_ACCESS_KEY_ID%"=="" (
-    if "%AWS_SECRET_ACCESS_KEY%"=="" (
-        echo   [SKIP] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY が config.env に未設定です
-        echo          AWS_PROFILE で既にプロファイル設定済みならスキップして問題ありません
-        echo          未設定の場合は config.env に追記するか、aws configure --profile chatwork-webhook を実行してください
-    )
-) else (
-    call aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
-    call aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
-    call aws configure set region ap-northeast-1 --profile chatwork-webhook
-    echo   OK
-)
+echo [5/5] AWS profile setup...
+if "%AWS_ACCESS_KEY_ID%"=="" if "%AWS_SECRET_ACCESS_KEY%"=="" goto :SKIP_AWS_KEYS
+call aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID% --profile chatwork-webhook
+call aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY% --profile chatwork-webhook
+call aws configure set region ap-northeast-1 --profile chatwork-webhook
+echo   OK
+goto :AFTER_AWS_KEYS
+:SKIP_AWS_KEYS
+echo   [SKIP] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set in config.env
+echo          OK if AWS profile is already configured.
+echo          Otherwise: aws configure --profile chatwork-webhook
+:AFTER_AWS_KEYS
 echo.
 
 echo === セットアップ完了 ===
