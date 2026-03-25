@@ -44,16 +44,54 @@ CW_API_BASE = "https://api.chatwork.com/v2"
 CW_TOKEN_GURIKO = os.environ.get("CW_TOKEN_GURIKO", "")
 CW_ERROR_ROOM_ID = int(os.environ.get("CW_ERROR_ROOM_ID", "0"))
 
-# 担当者設定（フォルダ名 → 設定）
+# 担当者設定（フォルダを自動スキャン）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMBERS_DIR = os.path.join(SCRIPT_DIR, "members")
 
-def _parse_room_ids(env_key):
-    """環境変数からルームIDリストをパース。空なら空セット（=全ルーム許可）"""
-    val = os.environ.get(env_key, "").strip()
-    if not val:
-        return set()
-    return {s.strip() for s in val.split(",") if s.strip()}
+def _load_env_file(filepath):
+    """envファイルを読み込んでdictで返す。なければ空dict"""
+    result = {}
+    if not os.path.exists(filepath):
+        return result
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    result[key.strip()] = val.strip()
+    except Exception:
+        pass
+    return result
+
+def _discover_members():
+    """members/ 配下のメンバーフォルダを自動スキャンしてMEMBERS dictを構築"""
+    members = {}
+    pattern = os.path.join(MEMBERS_DIR, "[0-9][0-9]_*")
+    for member_dir in sorted(glob.glob(pattern)):
+        if not os.path.isdir(member_dir):
+            continue
+        member_key = os.path.basename(member_dir)
+        env = _load_env_file(os.path.join(member_dir, "member.env"))
+        name = env.get("NAME", "")
+        account_id = env.get("ACCOUNT_ID", "")
+        cw_token = env.get("CW_TOKEN", "")
+        allowed_rooms_str = env.get("ALLOWED_ROOMS", "")
+        if not name or not account_id:
+            continue  # NAME と ACCOUNT_ID は必須
+        allowed_rooms = set()
+        if allowed_rooms_str:
+            allowed_rooms = {s.strip() for s in allowed_rooms_str.split(",") if s.strip()}
+        members[member_key] = {
+            "name": name,
+            "account_id": int(account_id),
+            "cw_token": cw_token,
+            "dir": member_dir,
+            "allowed_rooms": allowed_rooms,
+        }
+    return members
 
 def _load_talk_modes(member_dir):
     """mode.envからTALK_MODE設定を読み込む。デフォルトとルーム別を返す。
@@ -130,22 +168,7 @@ TALK_MODES = {
     },
 }
 
-MEMBERS = {
-    "01_yokota": {
-        "name": "横田 百恵",
-        "account_id": 11202266,
-        "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
-        "dir": os.path.join(MEMBERS_DIR, "01_yokota"),
-        "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_YOKOTA"),
-    },
-    "02_fujino": {
-        "name": "藤野 楓",
-        "account_id": 11204912,
-        "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
-        "dir": os.path.join(MEMBERS_DIR, "02_fujino"),
-        "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_FUJINO"),
-    },
-}
+MEMBERS = _discover_members()
 
 # account_id → メンバー設定の逆引き
 ACCOUNT_TO_MEMBER = {m["account_id"]: m for m in MEMBERS.values()}
@@ -506,7 +529,7 @@ def process_message(body: dict):
 
     # sender が空の場合、Chatwork API から補完
     if message_id and (not sender or not sender_name):
-        member_tmp = find_target_member(body) or MEMBERS["01_yokota"]
+        member_tmp = find_target_member(body) or MEMBERS[next(iter(MEMBERS))]
         msg_info = get_message_info(member_tmp["cw_token"], room_id, message_id)
         if msg_info:
             if not sender:
@@ -524,8 +547,9 @@ def process_message(body: dict):
     # 宛先メンバーを特定
     member = find_target_member(body)
     if not member:
-        # デフォルトは横田
-        member = MEMBERS["01_yokota"]
+        # デフォルトは最初のメンバー
+        first_key = next(iter(MEMBERS))
+        member = MEMBERS[first_key]
         log.info(f"宛先不明のためデフォルト: {member['name']}")
     else:
         log.info(f"宛先: {member['name']}")
@@ -638,8 +662,7 @@ def process_message(body: dict):
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"送信者は「{sender_name}」（アカウントID: {sender}）です。\n"
         f"通常は送信者への返信になります。[rp]タグはシステムが自動付与するので出力不要です。\n"
-        f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n"
-        f"例: [To:11204912]藤野 楓さん\n\n"
+        f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n\n"
         f"{room_members_info}"
         f"=== 返信の指示 ===\n{instructions}\n\n"
     )
@@ -844,6 +867,11 @@ def process_member_batch(member_key, msg_list, sqs):
                 log.error(f"SQSメッセージ削除エラー: {e}")
 
 def main():
+    # メンバー検出チェック
+    if not MEMBERS:
+        log.error("メンバーが1人も見つかりません。members/ 配下にメンバーフォルダと member.env を作成してください")
+        return
+
     # 必須環境変数チェック
     missing = []
     if not QUEUE_URL:
@@ -854,10 +882,10 @@ def main():
         missing.append("CW_ERROR_ROOM_ID")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
-            missing.append(f"CW_TOKEN ({key})")
+            missing.append(f"CW_TOKEN in {key}/member.env")
     if missing:
-        log.error(f"必須環境変数が未設定: {', '.join(missing)}")
-        log.error("config.env を config.env.example を参考に作成してください")
+        log.error(f"必須設定が未設定: {', '.join(missing)}")
+        log.error("config.env および各メンバーの member.env を確認してください")
         return
 
     sqs = boto3.client("sqs", region_name=AWS_REGION)
@@ -928,15 +956,16 @@ def main():
                 try:
                     body_data = json.loads(msg["Body"])
                     member = find_target_member(body_data)
+                    first_key = next(iter(MEMBERS))
                     if not member:
-                        member = MEMBERS["01_yokota"]
+                        member = MEMBERS[first_key]
                     member_key = None
                     for k, m in MEMBERS.items():
                         if m["account_id"] == member["account_id"]:
                             member_key = k
                             break
                     if not member_key:
-                        member_key = "01_yokota"
+                        member_key = first_key
                     if member_key not in member_messages:
                         member_messages[member_key] = []
                     member_messages[member_key].append((body_data, msg))
