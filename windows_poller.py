@@ -938,14 +938,21 @@ def main():
     log.info(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
     log.info(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}ターン")
     log.info(f"  REPLY_COOLDOWN_SECONDS={REPLY_COOLDOWN_SECONDS}秒")
-    log.info(f"登録メンバー数: {len(MEMBERS)}")
-    for key, member in MEMBERS.items():
+    log.info(f"=== メンバー読み込み ===")
+    log.info(f"スキャン対象: {MEMBERS_DIR}")
+    for idx, (key, member) in enumerate(MEMBERS.items(), 1):
         md_files = glob.glob(os.path.join(member["dir"], "*.md"))
         rooms = member.get("allowed_rooms", set())
-        rooms_str = ", ".join(rooms) if rooms else "全ルーム"
-        log.info(f"  {member['name']} ({key}): 指示ファイル {len(md_files)}件, cwd={member['dir']}, 許可ルーム=[{rooms_str}]")
+        rooms_str = ", ".join(sorted(rooms)) if rooms else "なし（全送信不可）"
+        log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key})")
+        log.info(f"    cwd: {member['dir']}")
+        log.info(f"    account_id: {member['account_id']}")
+        log.info(f"    cw_token: {'設定済' if member['cw_token'] else '未設定'}")
+        log.info(f"    許可ルーム: [{rooms_str}]")
+        log.info(f"    指示ファイル: {len(md_files)}件")
         for f in sorted(md_files):
-            log.info(f"    - {os.path.basename(f)}")
+            log.info(f"      - {os.path.basename(f)}")
+    log.info(f"メンバー合計: {len(MEMBERS)}名")
 
     while not _shutdown_requested:
         try:
