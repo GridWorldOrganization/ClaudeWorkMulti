@@ -403,10 +403,18 @@ def run_claude(prompt, cwd, member_name):
         return result
 
     except subprocess.TimeoutExpired:
-        log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
-        proc.kill()
-        proc.wait()
-        log.info(f"タイムアウトによりプロセス強制終了: pid={proc.pid}")
+        log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd} pid={proc.pid}")
+        try:
+            proc.kill()
+            proc.wait(timeout=10)
+            log.info(f"タイムアウト: プロセス強制終了成功 pid={proc.pid}")
+        except Exception as kill_err:
+            log.error(f"タイムアウト: プロセス強制終了失敗 pid={proc.pid} error={kill_err}")
+        # kill後のプロセス状態を確認
+        if proc.poll() is not None:
+            log.info(f"タイムアウト: プロセス停止確認済 pid={proc.pid} returncode={proc.returncode}")
+        else:
+            log.error(f"タイムアウト: プロセスがまだ生存 pid={proc.pid}")
         raise
 
     finally:
