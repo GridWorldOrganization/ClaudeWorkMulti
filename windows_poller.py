@@ -26,6 +26,7 @@ CLAUDE_COMMAND = "claude"
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
 REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
+CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "60"))
 
 # フォローアップ検出キーワード
 FOLLOWUP_KEYWORDS = [
@@ -341,7 +342,7 @@ def process_message(body: dict):
             encoding="utf-8",
             errors="replace",
             cwd=member_dir,
-            timeout=300
+            timeout=CLAUDE_TIMEOUT
         )
         log.info(f"<<< Claude Code 実行完了 (exit={result.returncode})")
 
@@ -393,7 +394,7 @@ def process_message(body: dict):
                         [CLAUDE_COMMAND, "-p", followup_prompt],
                         capture_output=True, text=True,
                         encoding="utf-8", errors="replace",
-                        cwd=member_dir, timeout=300
+                        cwd=member_dir, timeout=CLAUDE_TIMEOUT
                     )
                     followup_reply = followup_result.stdout.strip() if followup_result.stdout else ""
                     if followup_result.returncode == 0 and followup_reply:
