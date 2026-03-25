@@ -16,18 +16,16 @@ ChatWork → API Gateway → Lambda → SQS → ポーラー(Win PC) → Claude 
 ```
 ClaudeWorkMulti/
 ├── README.md                  # このファイル（目次）
-├── poller_client/             # ポーラークライアント（Windows PC で実行）
-│   ├── README.md              # ポーラーの詳細ドキュメント
-│   ├── QUICKSTART.md          # クイックスタートガイド
-│   ├── windows_poller.py      # メインスクリプト
-│   ├── start_poller.bat       # 起動スクリプト
-│   ├── setup_windows.bat      # 初回セットアップ
-│   ├── check_claude_task.bat  # Claudeプロセスチェッカー
-│   ├── config.env.example     # グローバル設定テンプレート
-│   └── members/               # AIメンバー設定
-│       ├── 00_common_rules.md # 全メンバー共通ルール
-│       ├── templates/         # テンプレート
-│       └── XX_name/           # 各メンバーフォルダ（member.env, persona, mode等）
+├── QUICKSTART.md              # クイックスタートガイド
+├── windows_poller.py          # ポーラーメインスクリプト（Windows PC で実行）
+├── start_poller.bat           # 起動スクリプト
+├── setup_windows.bat          # 初回セットアップ
+├── check_claude_task.bat      # Claudeプロセスチェッカー
+├── config.env.example         # グローバル設定テンプレート
+├── members/                   # AIメンバー設定
+│   ├── 00_common_rules.md     # 全メンバー共通ルール
+│   ├── templates/             # テンプレート
+│   └── XX_name/               # 各メンバーフォルダ（member.env, persona, mode等）
 └── infra/                     # AWSインフラ設定ガイド
     └── README.md              # SQS, Lambda, API Gateway, IAM, Webhook の構築手順
 ```
@@ -36,8 +34,7 @@ ClaudeWorkMulti/
 
 | ドキュメント | 内容 |
 |-------------|------|
-| [poller_client/QUICKSTART.md](poller_client/QUICKSTART.md) | 最短手順で動かすガイド（初回セットアップ + メンバー追加） |
-| [poller_client/README.md](poller_client/README.md) | ポーラーの全機能・設定・トラブルシューティング |
+| [QUICKSTART.md](QUICKSTART.md) | 最短手順で動かすガイド（初回セットアップ + メンバー追加） |
 | [infra/README.md](infra/README.md) | AWSインフラ構築手順（SQS, Lambda, API Gateway, IAM, Webhook） |
 
 ## 主な機能

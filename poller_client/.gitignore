@@ -1,7 +1,0 @@
-members/[0-9][0-9]_*/
-*.log
-log_state.json
-log.md
-desktop.ini
-config.env
-.claude_pids
