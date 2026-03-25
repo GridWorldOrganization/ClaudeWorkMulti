@@ -1,0 +1,6 @@
+clients/01_*/
+clients/02_*/
+*.log
+log_state.json
+log.md
+desktop.ini
