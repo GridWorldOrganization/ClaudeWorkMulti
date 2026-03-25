@@ -52,48 +52,42 @@ def _parse_room_ids(env_key):
         return set()
     return {s.strip() for s in val.split(",") if s.strip()}
 
-def _load_member_env(member_dir):
-    """メンバーフォルダの mode.env を読み込んで dict で返す。なければ空dict"""
+def _load_talk_modes(member_dir):
+    """mode.envからTALK_MODE設定を読み込む。デフォルトとルーム別を返す。
+    形式:
+      TALK_MODE=2            → デフォルト
+      TALK_MODE=426936385:3  → ルーム別
+      TALK_MODE=427388771:1  → ルーム別
+    """
     mode_env = os.path.join(member_dir, "mode.env")
-    result = {}
+    default_mode = 1
+    room_modes = {}
     if not os.path.exists(mode_env):
-        return result
+        return default_mode, room_modes
     try:
         with open(mode_env, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                if "=" in line:
-                    key, val = line.split("=", 1)
-                    result[key.strip()] = val.strip()
+                if not line.startswith("TALK_MODE="):
+                    continue
+                val = line[len("TALK_MODE="):].strip()
+                if ":" in val:
+                    rid, mode = val.split(":", 1)
+                    room_modes[rid.strip()] = int(mode.strip())
+                else:
+                    default_mode = int(val)
     except Exception as e:
         log.error(f"mode.env読み込みエラー: {mode_env}: {e}")
-    return result
+    return default_mode, room_modes
 
-def _load_talk_mode(member_dir, room_id=""):
-    """mode.envからTALK_MODEとルーム別モードを読み、該当モードを返す"""
-    env = _load_member_env(member_dir)
-    talk_mode_default = int(env.get("TALK_MODE", "1"))
-    # TALK_MODE_ルームID=モード の形式でルーム別設定を検出
-    if room_id:
-        room_key = f"TALK_MODE_{room_id}"
-        if room_key in env:
-            return int(env[room_key])
-    return talk_mode_default
-
-def _get_talk_mode_rooms(member_dir):
-    """mode.envからルーム別モード設定をdictで返す（/status表示用）"""
-    env = _load_member_env(member_dir)
-    rooms = {}
-    for key, val in env.items():
-        if key.startswith("TALK_MODE_") and key != "TALK_MODE":
-            rid = key[len("TALK_MODE_"):]
-            try:
-                rooms[rid] = int(val)
-            except ValueError:
-                pass
-    return rooms
+def _get_talk_mode(member_dir, room_id=""):
+    """該当ルームの会話モードを返す"""
+    default_mode, room_modes = _load_talk_modes(member_dir)
+    if room_id and str(room_id) in room_modes:
+        return room_modes[str(room_id)]
+    return default_mode
 
 # 会話モード定義
 TALK_MODES = {
@@ -428,14 +422,12 @@ def handle_status_command(member, room_id):
     allowed = member.get("allowed_rooms", set())
     rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
     # モード設定
-    member_env = _load_member_env(member["dir"])
-    talk_mode_default = int(member_env.get("TALK_MODE", "1"))
-    talk_mode_rooms = _get_talk_mode_rooms(member["dir"])
+    talk_mode_default, talk_mode_rooms = _load_talk_modes(member["dir"])
     lines.append(f"\n■ 会話モード (mode.env)")
     lines.append(f"  TALK_MODE={talk_mode_default}({TALK_MODES.get(talk_mode_default, {}).get('name', '不明')})")
     if talk_mode_rooms:
         for rid, mode in sorted(talk_mode_rooms.items()):
-            lines.append(f"  TALK_MODE_{rid}={mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
+            lines.append(f"  TALK_MODE={rid}:{mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
     else:
         lines.append(f"  ルーム別指定: なし")
 
@@ -564,7 +556,7 @@ def process_message(body: dict):
                 time.sleep(wait)
 
     # 会話モード決定（TALK_MODE_ルームID > TALK_MODE > 1）
-    talk_mode = _load_talk_mode(member_dir, str(room_id))
+    talk_mode = _get_talk_mode(member_dir, str(room_id))
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
 
