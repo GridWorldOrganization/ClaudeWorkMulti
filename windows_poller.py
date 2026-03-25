@@ -22,6 +22,7 @@ AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
 POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
+MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
 REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
@@ -286,6 +287,77 @@ def run_claude(prompt, cwd, member_name):
         log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
         raise
 
+def handle_status_command(member, room_id):
+    """メンテナンスコマンド /status: メンバーの設定状況を報告"""
+    member_dir = member["dir"]
+    lines = []
+    lines.append(f"[info][title]/status: {member['name']}[/title]")
+
+    # 共通ルール
+    common_files = sorted(glob.glob(os.path.join(CLIENTS_DIR, "00_*.md")))
+    lines.append(f"■ 共通ルール: {len(common_files)}件")
+    for f in common_files:
+        name = os.path.basename(f)
+        size = os.path.getsize(f)
+        lines.append(f"  - {name} ({size}B)")
+
+    # メンバー固有 .md
+    member_files = sorted([
+        f for f in glob.glob(os.path.join(member_dir, "*.md"))
+        if not os.path.basename(f).startswith("room_")
+        and not os.path.basename(f).startswith("chat_history_")
+    ])
+    lines.append(f"\n■ ペルソナ/指示: {len(member_files)}件")
+    for f in member_files:
+        name = os.path.basename(f)
+        size = os.path.getsize(f)
+        lines.append(f"  - {name} ({size}B)")
+
+    # ルーム固有 .md
+    room_files = sorted(glob.glob(os.path.join(member_dir, "room_*.md")))
+    lines.append(f"\n■ ルーム別設定: {len(room_files)}件")
+    for f in room_files:
+        name = os.path.basename(f)
+        size = os.path.getsize(f)
+        lines.append(f"  - {name} ({size}B)")
+
+    # CLAUDE.md
+    claude_md = os.path.join(member_dir, "CLAUDE.md")
+    if os.path.exists(claude_md):
+        size = os.path.getsize(claude_md)
+        lines.append(f"\n■ CLAUDE.md: あり ({size}B)")
+    else:
+        lines.append(f"\n■ CLAUDE.md: なし")
+
+    # 会話記録
+    history_files = sorted(glob.glob(os.path.join(member_dir, "chat_history_*.md")))
+    lines.append(f"\n■ 会話記録: {len(history_files)}件")
+    for f in history_files:
+        name = os.path.basename(f)
+        size = os.path.getsize(f)
+        lines.append(f"  - {name} ({size}B)")
+
+    # 拒否ログ
+    reject_log = os.path.join(member_dir, "rejected_rooms.log")
+    if os.path.exists(reject_log):
+        size = os.path.getsize(reject_log)
+        lines.append(f"\n■ 拒否ログ: あり ({size}B)")
+
+    # config.envパラメータ
+    allowed = member.get("allowed_rooms", set())
+    rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
+    lines.append(f"\n■ 設定値")
+    lines.append(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
+    lines.append(f"  CLAUDE_TIMEOUT={CLAUDE_TIMEOUT}秒")
+    lines.append(f"  FOLLOWUP_WAIT_SECONDS={FOLLOWUP_WAIT_SECONDS}秒")
+    lines.append(f"  MAX_AI_CONVERSATION_TURNS={MAX_AI_CONVERSATION_TURNS}")
+    lines.append(f"  REPLY_COOLDOWN_SECONDS={REPLY_COOLDOWN_SECONDS}秒")
+    lines.append(f"  許可ルーム=[{rooms_str}]")
+    lines.append(f"  cwd={member_dir}")
+
+    lines.append("[/info]")
+    return "\n".join(lines)
+
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
     message = body.get("body", "")
@@ -338,6 +410,17 @@ def process_message(body: dict):
     # 自分自身の発言は無視（無限ループ防止）
     if str(sender) == str(member["account_id"]):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
+        return
+
+    # メンテナンスコマンド判定: メッセージ本文から [To:xxx]名前さん\n を除去して比較
+    raw_command = message.strip()
+    # [To:xxx]名前さん\n のプレフィックスを除去
+    import re
+    raw_command = re.sub(r'^\[To:\d+\][^\n]*\n', '', raw_command).strip()
+    if raw_command == "/status" and MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
+        log.info(f"/status コマンド検出: {member['name']}")
+        status_msg = handle_status_command(member, room_id)
+        chatwork_post(member["cw_token"], room_id, status_msg)
         return
 
     # ルームIDホワイトリスト判定
