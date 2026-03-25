@@ -336,10 +336,11 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
 def run_claude(prompt, cwd, member_name):
     """Claude Codeを実行。Windows CreateProcess制限(32,767文字)に対するガード付き。"""
     # Windows CreateProcess のコマンドライン長制限チェック
-    MAX_CMD_LEN = 30000
-    if len(prompt) > MAX_CMD_LEN:
-        log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_CMD_LEN}文字")
-        prompt = prompt[:MAX_CMD_LEN] + "\n\n（以降省略）"
+    # Windows CreateProcess 制限 32,767文字。他の引数・クォート分を差し引く
+    MAX_PROMPT_LEN = 31000 - len(CLAUDE_COMMAND) - len(CLAUDE_MODEL) - 50
+    if len(prompt) > MAX_PROMPT_LEN:
+        log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_PROMPT_LEN}文字")
+        prompt = prompt[:MAX_PROMPT_LEN] + "\n\n（以降省略）"
 
     cmd = [CLAUDE_COMMAND, "-p", prompt, "--model", CLAUDE_MODEL]
 
@@ -458,8 +459,10 @@ def find_target_member(body):
             return member
     # webhook_owner_account_id があれば使う
     owner_id = body.get("webhook_owner_account_id")
-    if owner_id and owner_id in ACCOUNT_TO_MEMBER:
-        return ACCOUNT_TO_MEMBER[owner_id]
+    if owner_id:
+        owner_id_int = int(owner_id) if str(owner_id).isdigit() else None
+        if owner_id_int and owner_id_int in ACCOUNT_TO_MEMBER:
+            return ACCOUNT_TO_MEMBER[owner_id_int]
     return None
 
 def process_message(body: dict):
@@ -550,13 +553,15 @@ def process_message(body: dict):
             member_key = k
             break
     if member_key:
+        wait = 0
         with _reply_time_lock:
             last_time = _last_reply_time.get(member_key, 0)
             elapsed = time.time() - last_time
             if elapsed < REPLY_COOLDOWN_SECONDS:
                 wait = REPLY_COOLDOWN_SECONDS - elapsed
-                log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
-                time.sleep(wait)
+        if wait > 0:
+            log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
+            time.sleep(wait)
 
     # 会話モード決定（TALK_MODE=ルームID:モード > TALK_MODE=デフォルト > 1）
     talk_mode = _get_talk_mode(member_dir, str(room_id))
@@ -678,11 +683,12 @@ def process_message(body: dict):
                         chatwork_post(member["cw_token"], room_id, followup_reply)
                     else:
                         log.warning(f"フォローアップ返信が空またはエラー: exit={followup_result.returncode}")
+                    # フォローアップ成功時のみ「おやすみなさい」
+                    if followup_result.returncode == 0 and followup_reply:
+                        log.info(f"フォローアップ完了、おやすみ発言を投稿")
+                        chatwork_post(member["cw_token"], room_id, "おやすみなさい")
                 except Exception as e:
                     log.error(f"フォローアップ実行エラー: {e}")
-                # フォローアップ完了後「おやすみなさい」を発言
-                log.info(f"フォローアップ完了、おやすみ発言を投稿")
-                chatwork_post(member["cw_token"], room_id, "おやすみなさい")
 
         elif result.returncode != 0:
             error_detail = result.stderr[:500] if result.stderr else "不明なエラー"
@@ -841,7 +847,7 @@ def main():
                 # まだ残りがあるか確認
                 remaining = get_queue_count(sqs)
                 log.info(f"キュー読み込み中: 今回{len(batch)}件, 累計{len(all_messages)}件, 残り約{remaining}件")
-                if remaining <= 0:
+                if remaining == 0:
                     break
 
             if not all_messages:
@@ -885,7 +891,7 @@ def main():
                 log.info(f"バッチスレッド起動: {member_key} ({len(msg_list)}件)")
 
             # 全スレッド完了待ち（タイムアウト: CLAUDE_TIMEOUT + フォローアップ待機 + 余裕60秒）
-            thread_timeout = CLAUDE_TIMEOUT + FOLLOWUP_WAIT_SECONDS + 60
+            thread_timeout = CLAUDE_TIMEOUT * 2 + FOLLOWUP_WAIT_SECONDS + REPLY_COOLDOWN_SECONDS + 60
             for t in threads:
                 t.join(timeout=thread_timeout)
                 if t.is_alive():
