@@ -15,6 +15,7 @@ import requests
 import os
 import glob
 import re
+import threading
 from datetime import datetime
 
 # ===== 設定 =====
@@ -372,6 +373,45 @@ def get_queue_count(sqs):
     except Exception:
         return -1
 
+# メンバーごとの排他ロック（同一メンバーの同時実行を防止）
+_member_locks = {key: threading.Lock() for key in MEMBERS}
+
+def process_message_thread(body_data, sqs_msg_id, receipt_handle, sqs):
+    """メッセージをスレッドで処理し、完了後にSQSから削除"""
+    try:
+        # 宛先メンバーを特定してロック取得
+        member = find_target_member(body_data)
+        if not member:
+            member = MEMBERS["01_yokota"]
+        member_key = None
+        for k, m in MEMBERS.items():
+            if m["account_id"] == member["account_id"]:
+                member_key = k
+                break
+        if not member_key:
+            member_key = "01_yokota"
+
+        lock = _member_locks.get(member_key)
+        if lock:
+            log.info(f"[{member['name']}] ロック取得待ち...")
+            lock.acquire()
+            log.info(f"[{member['name']}] ロック取得、処理開始")
+        try:
+            process_message(body_data)
+        finally:
+            if lock:
+                lock.release()
+                log.info(f"[{member['name']}] ロック解放")
+    except Exception as e:
+        log.error(f"メッセージ処理エラー: {e}")
+        notify_error("メッセージ処理エラー", f"{e}")
+    finally:
+        try:
+            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
+            log.info(f"メッセージ削除: {sqs_msg_id}")
+        except Exception as e:
+            log.error(f"SQSメッセージ削除エラー: {e}")
+
 def main():
     sqs = boto3.client("sqs", region_name=AWS_REGION)
 
@@ -385,11 +425,12 @@ def main():
     log.info("=== Chatwork Webhook Poller 起動 ===")
     log.info(f"キュー: {QUEUE_URL}")
     log.info(f"ポーリング間隔: {POLL_INTERVAL}秒")
-    log.info("モード: 直列処理（Claude Code は常に1プロセスのみ）")
+    log.info("モード: 並列処理（メンバーごとに別スレッドで Claude Code 実行、同一メンバーは排他制御）")
+    log.info(f"フォローアップ待機: {FOLLOWUP_WAIT_SECONDS}秒")
     log.info(f"登録メンバー数: {len(MEMBERS)}")
     for key, member in MEMBERS.items():
         md_files = glob.glob(os.path.join(member["dir"], "*.md"))
-        log.info(f"  {member['name']} ({key}): 指示ファイル {len(md_files)}件")
+        log.info(f"  {member['name']} ({key}): 指示ファイル {len(md_files)}件, cwd={member['dir']}")
         for f in sorted(md_files):
             log.info(f"    - {os.path.basename(f)}")
 
@@ -397,7 +438,7 @@ def main():
         try:
             res = sqs.receive_message(
                 QueueUrl=QUEUE_URL,
-                MaxNumberOfMessages=1,
+                MaxNumberOfMessages=10,
                 WaitTimeSeconds=5
             )
             messages = res.get("Messages", [])
@@ -405,24 +446,24 @@ def main():
             if not messages:
                 continue
 
-            msg = messages[0]
             remaining = get_queue_count(sqs)
             if remaining > 0:
                 log.info(f"キュー待機中: 約{remaining}件")
 
-            try:
-                body_data = json.loads(msg["Body"])
-                process_message(body_data)
-            except Exception as e:
-                log.error(f"メッセージ処理エラー: {e}")
-                notify_error("メッセージ処理エラー", f"{e}")
-
-            sqs.delete_message(
-                QueueUrl=QUEUE_URL,
-                ReceiptHandle=msg["ReceiptHandle"]
-            )
-            log.info(f"メッセージ削除: {msg['MessageId']}")
-            continue
+            for msg in messages:
+                try:
+                    body_data = json.loads(msg["Body"])
+                    t = threading.Thread(
+                        target=process_message_thread,
+                        args=(body_data, msg["MessageId"], msg["ReceiptHandle"], sqs),
+                        daemon=True
+                    )
+                    t.start()
+                    log.info(f"スレッド起動: {msg['MessageId']}")
+                except Exception as e:
+                    log.error(f"スレッド起動エラー: {e}")
+                    notify_error("スレッド起動エラー", f"{e}")
+                    sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
 
         except Exception as e:
             log.error(f"ポーリングエラー: {e}")
