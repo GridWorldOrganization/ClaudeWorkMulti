@@ -407,11 +407,10 @@ def process_message(body: dict):
         # conversation_id を stderr から抽出して保存
         # claude --conversation は conversation_id（UUID形式等）を stderr に出力する
         if result.stderr:
-            import re as _re
+            import re
             for line in result.stderr.splitlines():
                 line = line.strip()
-                # UUID形式またはハイフン/英数字のID文字列を検出
-                if line and _re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
+                if line and re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
                     with _conv_id_lock:
                         _conversation_ids[conv_key] = line
                         log.info(f"会話ID保存: {conv_key} = {line}")
