@@ -25,6 +25,7 @@ POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = "claude"
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
 MAX_AI_CONVERSATION_TURNS = int(os.environ.get("MAX_AI_CONVERSATION_TURNS", "10"))
+REPLY_COOLDOWN_SECONDS = int(os.environ.get("REPLY_COOLDOWN_SECONDS", "15"))
 
 # フォローアップ検出キーワード
 FOLLOWUP_KEYWORDS = [
@@ -66,6 +67,11 @@ ALL_MEMBER_IDS = {str(m["account_id"]) for m in MEMBERS.values()}
 # key: room_id, value: {"count": int, "last_human_time": float}
 _conversation_chains = {}
 _chain_lock = threading.Lock()
+
+# メンバーごとの最終発言時刻（連投防止）
+# key: member_key, value: timestamp
+_last_reply_time = {}
+_reply_time_lock = threading.Lock()
 
 # ===== ログ設定 =====
 logging.basicConfig(
@@ -279,6 +285,21 @@ def process_message(body: dict):
 
     member_dir = member["dir"]
 
+    # 連投防止クールダウン
+    member_key = None
+    for k, m in MEMBERS.items():
+        if m["account_id"] == member["account_id"]:
+            member_key = k
+            break
+    if member_key:
+        with _reply_time_lock:
+            last_time = _last_reply_time.get(member_key, 0)
+            elapsed = time.time() - last_time
+            if elapsed < REPLY_COOLDOWN_SECONDS:
+                wait = REPLY_COOLDOWN_SECONDS - elapsed
+                log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
+                time.sleep(wait)
+
     # 指示ファイル読み込み
     instructions = load_instructions(member_dir)
 
@@ -333,6 +354,10 @@ def process_message(body: dict):
                 log.warning(f"message_idまたはsenderが不足: message_id={message_id}, sender={sender}")
             # 担当者として Chatwork に返信
             chatwork_post(member["cw_token"], room_id, reply)
+            # 最終発言時刻を記録（連投防止）
+            if member_key:
+                with _reply_time_lock:
+                    _last_reply_time[member_key] = time.time()
 
             # フォローアップ判定（元のAI出力で判定、[rp]タグ付与前のテキスト）
             raw_reply = result.stdout.strip()
