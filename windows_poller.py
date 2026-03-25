@@ -333,7 +333,7 @@ def process_message(body: dict):
         f"=== メッセージ本文 ===\n{message}"
     )
 
-    log.info(f">>> Claude Code 実行開始 [{member['name']}]（他のメッセージはキューで待機中）")
+    log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒")
     try:
         result = subprocess.run(
             [CLAUDE_COMMAND, "-p", prompt],
@@ -344,7 +344,7 @@ def process_message(body: dict):
             cwd=member_dir,
             timeout=CLAUDE_TIMEOUT
         )
-        log.info(f"<<< Claude Code 実行完了 (exit={result.returncode})")
+        log.info(f"<<< Claude Code 実行完了 [{member['name']}] (exit={result.returncode})")
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -390,12 +390,14 @@ def process_message(body: dict):
                     f"上記の情報をもとに、先ほどの「確認します」に対するフォローアップ返信を作成してください。"
                 )
                 try:
+                    log.info(f">>> Claude Code フォローアップ実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒")
                     followup_result = subprocess.run(
                         [CLAUDE_COMMAND, "-p", followup_prompt],
                         capture_output=True, text=True,
                         encoding="utf-8", errors="replace",
                         cwd=member_dir, timeout=CLAUDE_TIMEOUT
                     )
+                    log.info(f"<<< Claude Code フォローアップ実行完了 [{member['name']}] (exit={followup_result.returncode})")
                     followup_reply = followup_result.stdout.strip() if followup_result.stdout else ""
                     if followup_result.returncode == 0 and followup_reply:
                         log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
@@ -427,10 +429,10 @@ def process_message(body: dict):
             )
 
     except subprocess.TimeoutExpired:
-        log.error("Claude Code 実行タイムアウト (300秒)")
+        log.error(f"<<< Claude Code タイムアウト [{member['name']}] ({CLAUDE_TIMEOUT}秒超過) cwd={member_dir}")
         notify_error(
             f"Claude Code タイムアウト [{member['name']}]",
-            f"Claude Code が300秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}"
+            f"Claude Code が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}"
         )
     except FileNotFoundError:
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
