@@ -14,6 +14,7 @@ import logging
 import requests
 import os
 import glob
+import re
 from datetime import datetime
 
 # ===== 設定 =====
@@ -21,6 +22,15 @@ AWS_REGION = "ap-northeast-1"
 QUEUE_URL = "https://sqs.ap-northeast-1.amazonaws.com/REDACTED_AWS_ACCOUNT_ID/chatwork-webhook-queue"
 POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = "claude"
+FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
+
+# フォローアップ検出キーワード
+FOLLOWUP_KEYWORDS = [
+    "確認します", "確認してみます", "確認しますね",
+    "調べます", "調べてみます", "調べますね",
+    "チェックします", "チェックしてみます",
+    "少々お待ち", "お待ちください", "少し確認",
+]
 
 # Chatwork API
 CW_API_BASE = "https://api.chatwork.com/v2"
@@ -112,6 +122,47 @@ def get_message_info(token, room_id, message_id):
     except Exception as e:
         log.error(f"メッセージ情報取得エラー: {e}")
     return None
+
+def needs_followup(reply_text):
+    """返信テキストにフォローアップが必要なキーワードが含まれているか判定"""
+    for kw in FOLLOWUP_KEYWORDS:
+        if kw in reply_text:
+            return True
+    return False
+
+def gather_room_context(token, room_id):
+    """ルームの追加情報（メンバー一覧、直近メッセージ）を収集"""
+    context_parts = []
+    # メンバー一覧
+    try:
+        res = requests.get(
+            f"{CW_API_BASE}/rooms/{room_id}/members",
+            headers={"X-ChatWorkToken": token}
+        )
+        if res.status_code == 200:
+            members = res.json()
+            member_list = ", ".join([f"{m['name']}(ID:{m['account_id']})" for m in members])
+            context_parts.append(f"ルームメンバー: {member_list}")
+    except Exception as e:
+        log.error(f"メンバー取得エラー: {e}")
+    # 直近メッセージ（最新5件）
+    try:
+        res = requests.get(
+            f"{CW_API_BASE}/rooms/{room_id}/messages",
+            headers={"X-ChatWorkToken": token},
+            params={"force": 1}
+        )
+        if res.status_code == 200:
+            msgs = res.json()[-5:]
+            recent = []
+            for m in msgs:
+                name = m.get("account", {}).get("name", "不明")
+                body = m.get("body", "")[:200]
+                recent.append(f"[{name}] {body}")
+            context_parts.append("直近のメッセージ:\n" + "\n".join(recent))
+    except Exception as e:
+        log.error(f"メッセージ取得エラー: {e}")
+    return "\n\n".join(context_parts)
 
 def load_instructions(member_dir):
     """共通指示 + メンバー固有指示を読み込んで指示文を構築"""
@@ -240,6 +291,49 @@ def process_message(body: dict):
                 log.warning(f"message_idまたはsenderが不足: message_id={message_id}, sender={sender}")
             # 担当者として Chatwork に返信
             chatwork_post(member["cw_token"], room_id, reply)
+
+            # フォローアップ判定（元のAI出力で判定、[rp]タグ付与前のテキスト）
+            raw_reply = result.stdout.strip()
+            if needs_followup(raw_reply):
+                log.info(f"フォローアップ検出: {FOLLOWUP_WAIT_SECONDS}秒待機します")
+                time.sleep(FOLLOWUP_WAIT_SECONDS)
+                # ルーム情報を収集
+                room_context = gather_room_context(member["cw_token"], room_id)
+                log.info(f"ルーム情報収集完了")
+                # フォローアップ用プロンプト
+                followup_prompt = (
+                    f"あなたは「{member['name']}」としてChatworkで返信します。\n"
+                    f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
+                    f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
+                    f"[rp]タグや[To:]タグは絶対に含めないでください。タグはシステムが自動付与します。\n\n"
+                    f"=== 返信の指示 ===\n{instructions}\n\n"
+                    f"=== 元の受信メッセージ ===\n{message}\n\n"
+                    f"=== 収集した情報 ===\n{room_context}\n\n"
+                    f"上記の情報をもとに、先ほどの「確認します」に対するフォローアップ返信を作成してください。"
+                )
+                try:
+                    followup_result = subprocess.run(
+                        [CLAUDE_COMMAND, "-p", followup_prompt],
+                        capture_output=True, text=True,
+                        encoding="utf-8", errors="replace",
+                        cwd=member_dir, timeout=300
+                    )
+                    followup_reply = followup_result.stdout.strip() if followup_result.stdout else ""
+                    if followup_result.returncode == 0 and followup_reply:
+                        log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
+                        # [rp]タグ付与（元メッセージへの返信）
+                        if message_id and sender and sender_name:
+                            rp_header = f"[rp aid={sender} to={room_id}-{message_id}]{sender_name}さん"
+                            followup_reply = f"{rp_header}\n{followup_reply}"
+                        chatwork_post(member["cw_token"], room_id, followup_reply)
+                    else:
+                        log.warning(f"フォローアップ返信が空またはエラー: exit={followup_result.returncode}")
+                except Exception as e:
+                    log.error(f"フォローアップ実行エラー: {e}")
+                # フォローアップ完了後「おやすみなさい」を発言
+                log.info(f"フォローアップ完了、おやすみ発言を投稿")
+                chatwork_post(member["cw_token"], room_id, "おやすみなさい")
+
         elif result.returncode != 0:
             error_detail = result.stderr[:500] if result.stderr else "不明なエラー"
             log.error(f"Claude Code エラー: {error_detail}")
