@@ -22,8 +22,8 @@ copy config.env.example config.env
 ```env
 AWS_PROFILE=chatwork-webhook
 SQS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/XXXX/chatwork-webhook-queue
-CW_TOKEN_ERROR=（エラー報告アカウントのトークン）
-CW_ERROR_ROOM_ID=（エラー報告ルームID）
+CHATWORK_API_TOKEN_ERROR_REPORTER=（エラー報告アカウントのトークン）
+CHATWORK_ERROR_ROOM_ID=（エラー報告ルームID）
 ```
 
 ### 3. セットアップ実行
@@ -46,7 +46,7 @@ setup_member.bat
 ```env
 NAME=山田 太郎
 ACCOUNT_ID=12345678
-CW_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ALLOWED_ROOMS=426936385
 ```
 
@@ -78,7 +78,7 @@ setup_member.bat
 ```env
 NAME=田中 一郎
 ACCOUNT_ID=99999999
-CW_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ALLOWED_ROOMS=426936385,427388771
 ```
 

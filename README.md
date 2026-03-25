@@ -128,7 +128,7 @@ setup_member.bat
 ```env
 NAME=山田 太郎
 ACCOUNT_ID=12345678
-CW_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ALLOWED_ROOMS=426936385,427388771
 ```
 
@@ -136,7 +136,7 @@ ALLOWED_ROOMS=426936385,427388771
 |------|------|------|
 | `NAME` | 必須 | メンバーの表示名 |
 | `ACCOUNT_ID` | 必須 | ChatWork アカウントID |
-| `CW_TOKEN` | 必須 | ChatWork APIトークン |
+| `CHATWORK_API_TOKEN` | 必須 | ChatWork APIトークン |
 | `ALLOWED_ROOMS` | 必須 | 許可ルームID（カンマ区切り。空または未設定=全送信不可） |
 
 ### 6. ペルソナを設定
@@ -201,8 +201,8 @@ ALLOWED_ROOMS=426936385,427388771
 | パラメータ | デフォルト | 説明 |
 |-----------|-----------|------|
 | `SQS_QUEUE_URL` | (必須) | SQSキューURL |
-| `CW_TOKEN_ERROR` | (必須) | エラー報告アカウントのトークン |
-| `CW_ERROR_ROOM_ID` | (必須) | エラー報告先ルームID |
+| `CHATWORK_API_TOKEN_ERROR_REPORTER` | (必須) | エラー報告アカウントのトークン |
+| `CHATWORK_ERROR_ROOM_ID` | (必須) | エラー報告先ルームID |
 | `AWS_PROFILE` | (なし) | AWSプロファイル名（`setup_windows.bat`で`chatwork-webhook`を作成） |
 | `AWS_ACCESS_KEY_ID` | (なし) | AWSアクセスキー（プロファイル未設定時のフォールバック） |
 | `AWS_SECRET_ACCESS_KEY` | (なし) | AWSシークレットキー（同上） |
@@ -264,13 +264,13 @@ setup_member.bat
 ```env
 NAME=田中 一郎
 ACCOUNT_ID=99999999
-CW_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+CHATWORK_API_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ALLOWED_ROOMS=426936385
 ```
 
 - `NAME`: ChatWork上の表示名と一致させる
 - `ACCOUNT_ID`: ChatWorkのアカウント設定画面で確認
-- `CW_TOKEN`: ChatWorkのAPI設定画面で発行
+- `CHATWORK_API_TOKEN`: ChatWorkのAPI設定画面で発行
 - `ALLOWED_ROOMS`: 応答を許可するルームIDをカンマ区切り。空なら全ルーム
 
 ### Step 3: ペルソナ設定
@@ -376,7 +376,7 @@ members\03_tanaka\CLAUDE.md
 | 症状 | 対処 |
 |------|------|
 | 「メンバーが1人も見つかりません」 | メンバーフォルダに `member.env` が作成されていない |
-| 「CW_TOKEN in ...」 | `member.env` にCW_TOKENが未設定 |
+| 「CHATWORK_API_TOKEN in ...」 | `member.env` にCHATWORK_API_TOKENが未設定 |
 | 返信が来ない | ログで `Claude Code タイムアウト` を確認。`CLAUDE_TIMEOUT` を増やす |
 | 二重返信 | 1台のみで起動しているか確認 |
 | AI同士が止まらない | `MAX_AI_CONVERSATION_TURNS` を下げる |

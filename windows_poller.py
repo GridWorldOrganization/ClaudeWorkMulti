@@ -40,9 +40,9 @@ FOLLOWUP_KEYWORDS = [
 ]
 
 # Chatwork API
-CW_API_BASE = "https://api.chatwork.com/v2"
-CW_TOKEN_ERROR = os.environ.get("CW_TOKEN_ERROR", "")
-CW_ERROR_ROOM_ID = int(os.environ.get("CW_ERROR_ROOM_ID", "0"))
+CHATWORK_API_BASE = "https://api.chatwork.com/v2"
+CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
+CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
 
 # 担当者設定（フォルダを自動スキャン）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,7 +77,7 @@ def _discover_members():
         env = _load_env_file(os.path.join(member_dir, "member.env"))
         name = env.get("NAME", "")
         account_id = env.get("ACCOUNT_ID", "")
-        cw_token = env.get("CW_TOKEN", "")
+        cw_token = env.get("CHATWORK_API_TOKEN", "")
         allowed_rooms_str = env.get("ALLOWED_ROOMS", "")
         if not name or not account_id:
             continue  # NAME と ACCOUNT_ID は必須
@@ -212,7 +212,7 @@ def chatwork_post(token, room_id, message):
     """Chatwork にメッセージを投稿"""
     try:
         res = requests.post(
-            f"{CW_API_BASE}/rooms/{room_id}/messages",
+            f"{CHATWORK_API_BASE}/rooms/{room_id}/messages",
             headers={"X-ChatWorkToken": token},
             data={"body": message}
         )
@@ -226,7 +226,7 @@ def chatwork_post(token, room_id, message):
 def notify_error(title, detail):
     """エラー報告アカウントでエラー投稿"""
     msg = f"[info][title]{title}[/title]{detail}[/info]"
-    chatwork_post(CW_TOKEN_ERROR, CW_ERROR_ROOM_ID, msg)
+    chatwork_post(CHATWORK_API_TOKEN_ERROR_REPORTER, CHATWORK_ERROR_ROOM_ID, msg)
 
 def check_ai_conversation_allowed(room_id, sender):
     """AI同士の会話が許可されているか判定。人間の発言でカウンタリセット"""
@@ -253,7 +253,7 @@ def get_sender_name(token, room_id, sender_account_id):
     """送信者の表示名をルームメンバーから取得"""
     try:
         res = requests.get(
-            f"{CW_API_BASE}/rooms/{room_id}/members",
+            f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
             headers={"X-ChatWorkToken": token}
         )
         if res.status_code == 200:
@@ -268,7 +268,7 @@ def get_message_info(token, room_id, message_id):
     """Chatwork APIでメッセージ情報を取得し、送信者のaccount_idとnameを返す"""
     try:
         res = requests.get(
-            f"{CW_API_BASE}/rooms/{room_id}/messages/{message_id}",
+            f"{CHATWORK_API_BASE}/rooms/{room_id}/messages/{message_id}",
             headers={"X-ChatWorkToken": token}
         )
         if res.status_code == 200:
@@ -295,7 +295,7 @@ def gather_room_context(token, room_id):
     # メンバー一覧
     try:
         res = requests.get(
-            f"{CW_API_BASE}/rooms/{room_id}/members",
+            f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
             headers={"X-ChatWorkToken": token}
         )
         if res.status_code == 200:
@@ -307,7 +307,7 @@ def gather_room_context(token, room_id):
     # 直近メッセージ（最新5件）
     try:
         res = requests.get(
-            f"{CW_API_BASE}/rooms/{room_id}/messages",
+            f"{CHATWORK_API_BASE}/rooms/{room_id}/messages",
             headers={"X-ChatWorkToken": token},
             params={"force": 1}
         )
@@ -557,7 +557,7 @@ def handle_status_command(member, room_id):
     if member.get("cw_token"):
         try:
             res = requests.get(
-                f"{CW_API_BASE}/rooms",
+                f"{CHATWORK_API_BASE}/rooms",
                 headers={"X-ChatWorkToken": member["cw_token"]}
             )
             if res.status_code == 200:
@@ -753,7 +753,7 @@ def process_message(body: dict):
     if talk_mode == 3:
         try:
             res = requests.get(
-                f"{CW_API_BASE}/rooms/{room_id}/members",
+                f"{CHATWORK_API_BASE}/rooms/{room_id}/members",
                 headers={"X-ChatWorkToken": member["cw_token"]}
             )
             if res.status_code == 200:
@@ -993,13 +993,13 @@ def main():
     missing = []
     if not QUEUE_URL:
         missing.append("SQS_QUEUE_URL")
-    if not CW_TOKEN_ERROR:
-        missing.append("CW_TOKEN_ERROR")
-    if CW_ERROR_ROOM_ID == 0:
-        missing.append("CW_ERROR_ROOM_ID")
+    if not CHATWORK_API_TOKEN_ERROR_REPORTER:
+        missing.append("CHATWORK_API_TOKEN_ERROR_REPORTER")
+    if CHATWORK_ERROR_ROOM_ID == 0:
+        missing.append("CHATWORK_ERROR_ROOM_ID")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
-            missing.append(f"CW_TOKEN in {key}/member.env")
+            missing.append(f"CHATWORK_API_TOKEN in {key}/member.env")
     if missing:
         log.error(f"必須設定が未設定: {', '.join(missing)}")
         log.error("config.env および各メンバーの member.env を確認してください")
