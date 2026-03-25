@@ -236,6 +236,19 @@ def load_instructions(member_dir):
         return "受信したメッセージに対して、丁寧に日本語で返信してください。"
     return "\n\n".join(instructions)
 
+def save_chat_history(member_dir, room_id, sender_name, message, reply, member_name):
+    """会話記録をメンバーフォルダに保存"""
+    history_file = os.path.join(member_dir, f"chat_history_{room_id}.md")
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(history_file, "a", encoding="utf-8") as f:
+            f.write(f"\n---\n### {now}\n")
+            f.write(f"**{sender_name}**: {message}\n\n")
+            f.write(f"**{member_name}**: {reply}\n")
+        log.info(f"会話記録保存: {history_file}")
+    except Exception as e:
+        log.error(f"会話記録保存エラー: {e}")
+
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
     message = body.get("body", "")
@@ -406,6 +419,9 @@ def process_message(body: dict):
                 log.warning(f"message_idまたはsenderが不足: message_id={message_id}, sender={sender}")
             # 担当者として Chatwork に返信
             chatwork_post(member["cw_token"], room_id, reply)
+            # 会話記録を保存
+            raw_reply = result.stdout.strip()
+            save_chat_history(member_dir, room_id, sender_name, message, raw_reply, member["name"])
             # 最終発言時刻を記録（連投防止）
             if member_key:
                 with _reply_time_lock:
