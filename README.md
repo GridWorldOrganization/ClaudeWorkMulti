@@ -52,6 +52,7 @@ ChatWorkWebHookClient/
 ├── windows_poller.py          # メイン
 ├── start_poller.bat           # 起動スクリプト
 ├── setup_windows.bat          # 初回セットアップ
+├── check_claude_task.bat      # Claudeプロセスチェッカー
 ├── config.env                 # グローバル設定（※Gitに含まれない）
 ├── config.env.example         # ↑のテンプレート
 ├── webhook_poller.log         # 実行ログ（自動生成）
@@ -331,6 +332,44 @@ Claude Codeが自動読み込みする「記憶ファイル」。会話の文脈
 ```
 members\03_tanaka\CLAUDE.md
 ```
+
+## Claudeプロセスチェッカー（check_claude_task.bat）
+
+`check_claude_task.bat` をダブルクリックすると、実行中のClaudeプロセスを一覧表示します。
+ポーラーが起動したプロセスには `[ポーラー登録]` マークが付きます。
+
+```
+==========================================
+  Claude プロセス チェッカー
+==========================================
+
+[実行中の Claude プロセス一覧]
+
+  1. claude.exe  PID=12345 [ポーラー登録]
+  2. claude.exe  PID=67890
+  3. claude.exe  PID=11111 [ポーラー登録]
+
+[.claude_pids ファイルの内容]
+  PID=12345
+  PID=11111
+
+==========================================
+
+操作を選択してください:
+  番号  : そのプロセスを終了
+  a     : 全プロセスを終了
+  c     : .claude_pids をクリア
+  q     : 何もせず終了
+```
+
+| 操作 | 説明 |
+|------|------|
+| 番号入力 | 該当プロセスだけ終了 |
+| `a` | 全Claudeプロセス終了 + PIDファイルクリア |
+| `c` | PIDファイルだけクリア（プロセスは残す） |
+| `q` | 何もせず終了 |
+
+> ポーラー登録がないプロセス（手動起動の claude 等）は、番号指定しない限りkillされません。
 
 ## トラブルシューティング
 
