@@ -23,6 +23,7 @@ from datetime import datetime
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
 POLL_INTERVAL = max(0.1, min(10.0, float(os.environ.get("POLL_INTERVAL", "0.5"))))
+SQS_WAIT_TIME_SECONDS = max(0, min(20, int(os.environ.get("SQS_WAIT_TIME_SECONDS", "0"))))  # 0=ショート, 1-20=ロング
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
@@ -1026,7 +1027,8 @@ def main():
 
     log.info("=== Chatwork Webhook Poller 起動 ===")
     log.info(f"キュー: {QUEUE_URL}")
-    log.info(f"ポーリング間隔: {POLL_INTERVAL}秒")
+    poll_mode = f"ロング（WaitTime={SQS_WAIT_TIME_SECONDS}秒）" if SQS_WAIT_TIME_SECONDS > 0 else f"ショート（間隔={POLL_INTERVAL}秒）"
+    log.info(f"ポーリングモード: {poll_mode}")
     log.info("モード: バッチ+並列処理（キュー全件読み込み→メンバーごとにまとめて処理）")
     log.info(f"=== config.env パラメータ ===")
     log.info(f"  CLAUDE_COMMAND={CLAUDE_COMMAND}")
@@ -1060,12 +1062,16 @@ def main():
         try:
             # ===== フェーズ1: キューを空になるまで全件読み込み =====
             all_messages = []
+            first = True
             while True:
+                # 1回目: ロングポーリング設定を使用、2回目以降はショート（ドレイン）
+                wait_time = SQS_WAIT_TIME_SECONDS if first else 0
                 res = sqs.receive_message(
                     QueueUrl=QUEUE_URL,
                     MaxNumberOfMessages=10,
-                    WaitTimeSeconds=0
+                    WaitTimeSeconds=wait_time
                 )
+                first = False
                 batch = res.get("Messages", [])
                 if not batch:
                     break
@@ -1129,7 +1135,8 @@ def main():
             time.sleep(10)
             continue
 
-        time.sleep(POLL_INTERVAL)
+        if SQS_WAIT_TIME_SECONDS == 0:
+            time.sleep(POLL_INTERVAL)
 
     log.info("=== Chatwork Webhook Poller 停止 ===")
 
