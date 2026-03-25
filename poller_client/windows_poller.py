@@ -22,7 +22,7 @@ from datetime import datetime
 # ===== 設定 =====
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
-POLL_INTERVAL = 5  # 秒
+POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "0.5"))
 CLAUDE_COMMAND = os.environ.get("CLAUDE_COMMAND", "claude")
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 MAINTENANCE_ROOM_ID = os.environ.get("MAINTENANCE_ROOM_ID", "")
@@ -1064,7 +1064,7 @@ def main():
                 res = sqs.receive_message(
                     QueueUrl=QUEUE_URL,
                     MaxNumberOfMessages=10,
-                    WaitTimeSeconds=5
+                    WaitTimeSeconds=0
                 )
                 batch = res.get("Messages", [])
                 if not batch:
