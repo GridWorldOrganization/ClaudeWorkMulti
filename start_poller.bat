@@ -13,10 +13,24 @@ if exist config.env (
     echo [WARN] config.env not found. Using defaults.
 )
 
-REM AWS認証確認
+REM AWS認証: プロファイルが存在するか確認、なければ直接キー認証にフォールバック
+if defined AWS_PROFILE (
+    aws configure get aws_access_key_id --profile %AWS_PROFILE% >nul 2>&1
+    if errorlevel 1 (
+        echo [INFO] AWS_PROFILE=%AWS_PROFILE% が未作成のため直接キー認証を使用
+        set "AWS_PROFILE="
+        if not defined AWS_ACCESS_KEY_ID (
+            echo [ERROR] AWS_ACCESS_KEY_ID も未設定です。setup_windows.bat を実行してください
+            pause
+            exit /b 1
+        )
+    )
+)
 if not defined AWS_PROFILE (
     if not defined AWS_ACCESS_KEY_ID (
-        echo [WARN] AWS_PROFILE も AWS_ACCESS_KEY_ID も未設定です
+        echo [ERROR] AWS認証情報がありません。config.env を確認してください
+        pause
+        exit /b 1
     )
 )
 
