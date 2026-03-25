@@ -65,16 +65,24 @@ def _parse_room_modes(env_key):
             modes[rid.strip()] = int(mode.strip())
     return modes
 
-def _load_default_mode(member_dir):
-    """メンバーフォルダの mode.txt からデフォルトモードを読み込む。なければ1(業務)"""
-    mode_file = os.path.join(member_dir, "mode.txt")
+def _load_member_env(member_dir):
+    """メンバーフォルダの mode.env を読み込んで dict で返す。なければ空dict"""
+    mode_env = os.path.join(member_dir, "mode.env")
+    result = {}
+    if not os.path.exists(mode_env):
+        return result
     try:
-        if os.path.exists(mode_file):
-            with open(mode_file, "r", encoding="utf-8") as f:
-                return int(f.read().strip())
-    except (ValueError, Exception):
-        pass
-    return 1
+        with open(mode_env, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    result[key.strip()] = val.strip()
+    except Exception as e:
+        log.error(f"mode.env読み込みエラー: {mode_env}: {e}")
+    return result
 
 # 会話モード定義
 CONV_MODES = {
@@ -411,7 +419,7 @@ def handle_status_command(member, room_id):
     allowed = member.get("allowed_rooms", set())
     rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
     # モード設定
-    default_mode = _load_default_mode(member["dir"])
+    default_mode = int(_load_member_env(member["dir"]).get("DEFAULT_MODE", "1"))
     room_modes = member.get("room_modes", {})
     lines.append(f"\n■ 会話モード")
     lines.append(f"  デフォルト: {default_mode}({CONV_MODES.get(default_mode, {}).get('name', '不明')})")
@@ -545,9 +553,9 @@ def process_message(body: dict):
                 log.info(f"[{member['name']}] クールダウン待機: {wait:.1f}秒")
                 time.sleep(wait)
 
-    # 会話モード決定（ルーム別 > メンバーフォルダのmode.txt > 1）
+    # 会話モード決定（ルーム別 > メンバーフォルダのmode.env > 1）
     room_modes = member.get("room_modes", {})
-    default_mode = _load_default_mode(member_dir)
+    default_mode = int(_load_member_env(member_dir).get("DEFAULT_MODE", "1"))
     conv_mode = room_modes.get(str(room_id), default_mode)
     mode_info = CONV_MODES.get(conv_mode, CONV_MODES[1])
     log.info(f"会話モード: {conv_mode}({mode_info['name']})")

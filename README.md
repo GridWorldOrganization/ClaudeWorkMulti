@@ -159,7 +159,7 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 
 ## 会話モード
 
-3種類の会話モードがあり、メンバーごと・ルームごとに設定できます。
+4種類の会話モードがあり、メンバーごと・ルームごとに設定できます。
 
 | モード | 名前 | 説明 |
 |--------|------|------|
@@ -168,16 +168,22 @@ copy members\templates\01_persona.md.example members\01_yokota\01_persona.md
 | 2 | ペルソナ | ペルソナ設定に準拠し感情豊かに話す。キャラクターらしい口調 |
 | 3 | ペルソナ+ | ペルソナに加え、ルーム内の他メンバーに時折話を振る（3〜4回に1回） |
 
-### 設定方法（config.env）
+### 設定方法
 
-**メンバーのデフォルトモード（メンバーフォルダ内の `mode.txt`）:**
+**メンバーのデフォルトモード（メンバーフォルダ内の `mode.env`）:**
 
 ```
-members/01_yokota/mode.txt  ← 中身: 2（ペルソナモード）
-members/02_fujino/mode.txt  ← 中身: 1（業務モード）
+members/01_yokota/mode.env
+members/02_fujino/mode.env
 ```
 
-`mode.txt` がなければデフォルト1（業務）。数字1文字だけ書く。
+中身の例：
+```env
+# 0=メンテナンス/1=業務/2=ペルソナ/3=ペルソナ+
+DEFAULT_MODE=2
+```
+
+`mode.env` がなければデフォルト1（業務）。テンプレートは `members/templates/mode.env.example`。
 
 **ルーム別にモードを上書き（config.env）:**
 ```env
@@ -190,7 +196,7 @@ ROOM_MODES_FUJINO=426936385:2,427388771:0
 - 横田: ルーム426936385ではペルソナ、427388771では業務、その他はデフォルト
 - 藤野: ルーム426936385ではペルソナ、427388771ではメンテナンス、その他はデフォルト
 
-**優先順位:** ルーム別指定(config.env) > mode.txt(メンバーフォルダ) > 1(業務)
+**優先順位:** ルーム別指定(config.env) > mode.env(メンバーフォルダ) > 1(業務)
 
 ## メンバーの追加方法
 
