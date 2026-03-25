@@ -52,7 +52,7 @@ def _parse_room_ids(env_key):
         return set()
     return {s.strip() for s in val.split(",") if s.strip()}
 
-def _parse_room_modes(env_key):
+def _parse_talk_mode_rooms(env_key):
     """環境変数からルームごとのモード設定をパース。形式: room_id:mode,room_id:mode"""
     val = os.environ.get(env_key, "").strip()
     if not val:
@@ -85,7 +85,7 @@ def _load_member_env(member_dir):
     return result
 
 # 会話モード定義
-CONV_MODES = {
+TALK_MODES = {
     0: {
         "name": "メンテナンス",
         "instruction": (
@@ -129,7 +129,7 @@ MEMBERS = {
         "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
         "dir": os.path.join(MEMBERS_DIR, "01_yokota"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_YOKOTA"),
-        "room_modes": _parse_room_modes("ROOM_MODES_YOKOTA"),
+        "talk_mode_rooms": _parse_talk_mode_rooms("TALK_MODE_ROOMS_YOKOTA"),
     },
     "02_fujino": {
         "name": "藤野 楓",
@@ -137,7 +137,7 @@ MEMBERS = {
         "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
         "dir": os.path.join(MEMBERS_DIR, "02_fujino"),
         "allowed_rooms": _parse_room_ids("ALLOWED_ROOMS_FUJINO"),
-        "room_modes": _parse_room_modes("ROOM_MODES_FUJINO"),
+        "talk_mode_rooms": _parse_talk_mode_rooms("TALK_MODE_ROOMS_FUJINO"),
     },
 }
 
@@ -419,13 +419,13 @@ def handle_status_command(member, room_id):
     allowed = member.get("allowed_rooms", set())
     rooms_str = ", ".join(sorted(allowed)) if allowed else "全ルーム"
     # モード設定
-    default_mode = int(_load_member_env(member["dir"]).get("DEFAULT_MODE", "1"))
-    room_modes = member.get("room_modes", {})
+    talk_mode_default = int(_load_member_env(member["dir"]).get("TALK_MODE", "1"))
+    talk_mode_rooms = member.get("talk_mode_rooms", {})
     lines.append(f"\n■ 会話モード")
-    lines.append(f"  デフォルト: {default_mode}({CONV_MODES.get(default_mode, {}).get('name', '不明')})")
-    if room_modes:
-        for rid, mode in sorted(room_modes.items()):
-            lines.append(f"  ルーム {rid}: {mode}({CONV_MODES.get(mode, {}).get('name', '不明')})")
+    lines.append(f"  デフォルト: {talk_mode_default}({TALK_MODES.get(talk_mode_default, {}).get('name', '不明')})")
+    if talk_mode_rooms:
+        for rid, mode in sorted(talk_mode_rooms.items()):
+            lines.append(f"  ルーム {rid}: {mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
     else:
         lines.append(f"  ルーム別指定: なし")
 
@@ -554,18 +554,18 @@ def process_message(body: dict):
                 time.sleep(wait)
 
     # 会話モード決定（ルーム別 > メンバーフォルダのmode.env > 1）
-    room_modes = member.get("room_modes", {})
-    default_mode = int(_load_member_env(member_dir).get("DEFAULT_MODE", "1"))
-    conv_mode = room_modes.get(str(room_id), default_mode)
-    mode_info = CONV_MODES.get(conv_mode, CONV_MODES[1])
-    log.info(f"会話モード: {conv_mode}({mode_info['name']})")
+    talk_mode_rooms = member.get("talk_mode_rooms", {})
+    talk_mode_default = int(_load_member_env(member_dir).get("TALK_MODE", "1"))
+    talk_mode = talk_mode_rooms.get(str(room_id), talk_mode_default)
+    talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
+    log.info(f"会話モード: {talk_mode}({talk_info['name']})")
 
     # 指示ファイル読み込み
     instructions = load_instructions(member_dir, room_id)
 
     # モード3(ペルソナ+)の場合、ルームメンバー情報を取得
     room_members_info = ""
-    if conv_mode == 3:
+    if talk_mode == 3:
         try:
             res = requests.get(
                 f"{CW_API_BASE}/rooms/{room_id}/members",
@@ -589,7 +589,7 @@ def process_message(body: dict):
     # Claude Code に渡すプロンプト
     prompt = (
         f"あなたは「{member['name']}」としてChatworkで返信します。\n"
-        f"=== 会話モード: {mode_info['name']} ===\n{mode_info['instruction']}\n\n"
+        f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"送信者は「{sender_name}」（アカウントID: {sender}）です。\n"
