@@ -251,8 +251,10 @@ def process_message(body: dict):
         f"あなたは「{member['name']}」としてChatworkで返信します。\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
-        f"[rp]タグや[To:]タグは絶対に含めないでください。タグはシステムが自動付与します。\n"
-        f"あなたの返信は送信者「{sender_name}」（アカウントID: {sender}）に向けたものです。本文中で相手を呼ぶ場合は「{sender_name}さん」と呼んでください。他の人の名前で呼ばないでください。\n\n"
+        f"送信者は「{sender_name}」（アカウントID: {sender}）です。\n"
+        f"通常は送信者への返信になります。[rp]タグはシステムが自動付与するので出力不要です。\n"
+        f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n"
+        f"例: [To:11204912]藤野 楓さん\n\n"
         f"=== 返信の指示 ===\n{instructions}\n\n"
         f"=== 受信メッセージ情報 ===\n"
         f"ルームID: {room_id}\n"
@@ -280,11 +282,13 @@ def process_message(body: dict):
 
         if result.returncode == 0 and reply:
             log.info(f"返信内容 [{member['name']}]: {reply[:500]}")
-            # [rp]タグを自動構築
-            if message_id and sender:
-                sender_name = get_sender_name(member["cw_token"], room_id, sender)
-                if sender_name:
-                    rp_header = f"[rp aid={sender} to={room_id}-{message_id}]{sender_name}さん"
+            # [rp]タグを自動構築（AIが[To:]や[rp]を出力していない場合のみ）
+            if reply.startswith("[To:") or reply.startswith("[rp "):
+                log.info(f"AI出力にタグあり、自動付与スキップ")
+            elif message_id and sender:
+                sender_name_resolved = get_sender_name(member["cw_token"], room_id, sender)
+                if sender_name_resolved:
+                    rp_header = f"[rp aid={sender} to={room_id}-{message_id}]{sender_name_resolved}さん"
                     reply = f"{rp_header}\n{reply}"
                     log.info(f"[rp]タグ付与: {rp_header}")
                 else:
