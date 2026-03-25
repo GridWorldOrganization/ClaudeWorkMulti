@@ -138,10 +138,10 @@ def load_instructions(member_dir):
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
     message = body.get("body", "")
-    # [To:account_id] パターンでメンション先を検出
+    # [To:account_id] または [rp aid=account_id パターンでメンション先を検出
     for member in MEMBERS.values():
         aid = str(member["account_id"])
-        if f"[To:{aid}]" in message:
+        if f"[To:{aid}]" in message or f"[rp aid={aid} " in message:
             return member
     # webhook_owner_account_id があれば使う
     owner_id = body.get("webhook_owner_account_id")
