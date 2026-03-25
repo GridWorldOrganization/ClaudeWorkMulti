@@ -6,7 +6,46 @@ Windows PC 上で動作します。
 > **注意: ポーラーは必ず1台のPCでのみ起動してください。** 2台同時に動くと同じメッセージを二重処理します。
 > **注意: 起動時にSQSキューが自動パージされます。** 起動前にキューに溜まっていたメッセージは破棄されます。
 
-## 構成
+## システム全体構成
+
+```
+ChatWork                    AWS                              Windows PC
+┌──────────┐   Webhook    ┌──────────────┐   POST    ┌──────────────────┐
+│ ユーザー  │──[To:メンバー]──▶│ API Gateway  │─────────▶│ Lambda           │
+│ が発言    │              │ (prod)       │          │ chatwork-webhook │
+└──────────┘              └──────────────┘          │ -handler         │
+                                                     └────────┬─────────┘
+                                                              │ SQS送信
+                                                     ┌────────▼─────────┐
+                                                     │ SQS Queue        │
+                                                     │ chatwork-webhook │
+                                                     │ -queue           │
+                                                     └────────┬─────────┘
+                                                              │ ポーリング
+┌──────────┐   API返信    ┌──────────────────────────────────▼─────────┐
+│ ChatWork  │◀────────────│ windows_poller.py                         │
+│ ルーム    │              │   → Claude Code (claude -p --model)       │
+└──────────┘              │   → Chatwork API で返信投稿               │
+                           └──────────────────────────────────────────┘
+```
+
+### AWSリソース
+
+| リソース | 名前 | 備考 |
+|---------|------|------|
+| API Gateway | `chatwork-webhook-api` (ID: `284bdrbap0`) | ステージ: `prod` |
+| Lambda | `chatwork-webhook-handler` | Python 3.12 |
+| SQS | `chatwork-webhook-queue` | 標準キュー。保持期間14日 |
+
+### Webhook URL
+
+```
+https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod
+```
+
+各メンバーのChatWorkアカウントで、このURLをWebhookとして登録する。
+
+## ファイル構成
 
 ```
 ChatWorkWebHookClient/
@@ -262,8 +301,18 @@ TALK_MODE=426936385:3
 
 ### Step 6: Chatwork Webhook設定
 
-新メンバーのChatWorkアカウントでWebhookを設定し、Lambda経由でSQSにメッセージが届くようにする。
-（既存メンバーと同じWebhook + Lambda構成）
+新メンバーのChatWorkアカウントでWebhookを登録する。
+
+1. 新メンバーのChatWorkアカウントでログイン
+2. 管理画面 → 「サービス連携」 → 「Webhook」
+3. 「Webhook新規作成」をクリック
+4. 以下を設定：
+   - **Webhook名**: 任意（例: `AI自動返信`）
+   - **Webhook URL**: `https://284bdrbap0.execute-api.ap-northeast-1.amazonaws.com/prod`
+   - **イベント**: `メンションされた時（mention_to_me）` にチェック
+5. 保存
+
+> **注意**: Webhook URLは全メンバー共通です。Lambda → SQS → ポーラーの経路は1つ。メンバーの振り分けはポーラー側で行います。
 
 ### オプション: ルーム別口調
 
