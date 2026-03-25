@@ -66,9 +66,9 @@ FOLLOWUP_KEYWORDS = [
 # --- 会話モード定義 ---
 TALK_MODES = {
     0: {
-        "name": "メンテナンス",
+        "name": "ログ",
         "instruction": (
-            "メンテナンスモードです。機械的に端的に話してください。"
+            "ログモードです。機械的に端的に話してください。"
             "余計なことは一切言わない。聞かれたことだけに最短で答える。"
             "絵文字・装飾・雑談・感情表現は禁止。事実のみ。改行禁止。1行で回答する。"
         ),
@@ -709,6 +709,24 @@ def handle_status_command(member, room_id):
     return "\n".join(lines)
 
 
+def handle_talk_status(member, room_id):
+    """/talk（引数なし）: このルームの現在の会話モードと設定可能なモード一覧を表示する"""
+    default_mode, room_modes = _load_talk_modes(member["dir"])
+    current_mode = room_modes.get(str(room_id), default_mode)
+    is_default = str(room_id) not in room_modes
+    current_name = TALK_MODES.get(current_mode, {}).get("name", "不明")
+
+    lines = [f"[info][title]/talk: {member['name']}[/title]"]
+    source = "デフォルト" if is_default else "ルーム別設定"
+    lines.append(f"このルームの会話モード: {current_mode}（{current_name}）[{source}]")
+    lines.append(f"\n設定可能なモード:")
+    for mode_id, mode_info in sorted(TALK_MODES.items()):
+        marker = " ← 現在" if mode_id == current_mode else ""
+        lines.append(f"  /talk {mode_id} : {mode_info['name']}{marker}")
+    lines.append("[/info]")
+    return "\n".join(lines)
+
+
 def handle_talk_command(member, room_id, new_mode):
     """/talk N: 該当ルームの会話モードを変更し、mode.env を更新する"""
     if new_mode not in TALK_MODES:
@@ -899,13 +917,16 @@ def process_message(body: dict):
     # --- コマンド判定 ---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
 
-    # /talk N: 会話モード変更（全許可ルームで動作、AI不使用）
+    # /talk: 会話モード（全許可ルームで動作、AI不使用）
+    if raw_command == "/talk":
+        log.info(f"/talk コマンド検出（状態表示）: {member['name']} room={room_id}")
+        chatwork_post(member["cw_token"], room_id, handle_talk_status(member, room_id))
+        return
     talk_match = re.match(r'^/talk\s+(\d)$', raw_command)
     if talk_match:
         new_mode = int(talk_match.group(1))
         log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
-        result_msg = handle_talk_command(member, room_id, new_mode)
-        chatwork_post(member["cw_token"], room_id, result_msg)
+        chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
         return
 
     # /status, /session: メンテナンスルーム限定
