@@ -14,7 +14,9 @@ import logging
 import requests
 import os
 import glob
+import re
 import threading
+import tempfile
 from datetime import datetime
 
 # ===== 設定 =====
@@ -92,7 +94,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("webhook_poller.log", encoding="utf-8"),
+        logging.FileHandler(os.path.join(SCRIPT_DIR, "webhook_poller.log"), encoding="utf-8"),
         logging.StreamHandler()
     ]
 )
@@ -248,6 +250,62 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
     except Exception as e:
         log.error(f"会話記録保存エラー: {e}")
 
+def run_claude(prompt, cwd, member_name, conversation_id=None):
+    """Claude Codeを一時ファイル経由で実行（Windowsコマンドライン長制限回避）"""
+    tmp_file = None
+    try:
+        # プロンプトを一時ファイルに書き出し
+        tmp_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", encoding="utf-8",
+            dir=cwd, delete=False
+        )
+        tmp_file.write(prompt)
+        tmp_file.close()
+
+        # stdinからプロンプトを読み込む方式
+        cmd = [CLAUDE_COMMAND, "-p", "-", "--conversation"]
+        if conversation_id:
+            cmd.extend(["--resume", conversation_id])
+
+        log.info(f">>> Claude Code 実行開始 [{member_name}] cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
+                 f"{f' conversation={conversation_id}' if conversation_id else ' (新規会話)'}")
+
+        with open(tmp_file.name, "r", encoding="utf-8") as f:
+            result = subprocess.run(
+                cmd,
+                stdin=f,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=cwd,
+                timeout=CLAUDE_TIMEOUT
+            )
+
+        log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={result.returncode})")
+
+        # conversation_id を stderr から抽出
+        new_conv_id = None
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                line = line.strip()
+                if line and re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
+                    new_conv_id = line
+                    break
+
+        return result, new_conv_id
+
+    except subprocess.TimeoutExpired:
+        log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
+        raise
+    finally:
+        # 一時ファイル削除
+        if tmp_file and os.path.exists(tmp_file.name):
+            try:
+                os.unlink(tmp_file.name)
+            except Exception:
+                pass
+
 def find_target_member(body):
     """メッセージの宛先メンバーを特定する"""
     message = body.get("body", "")
@@ -286,7 +344,7 @@ def process_message(body: dict):
     timestamp = body.get("timestamp", "")
 
     log.info(f"受信: room={room_id}, sender={sender}, type={event_type}")
-    log.info(f"本文: {message}")
+    log.info(f"本文: {message[:100]}{'...' if len(message) > 100 else ''}")
 
     # 宛先メンバーを特定
     member = find_target_member(body)
@@ -383,38 +441,17 @@ def process_message(body: dict):
 
     # 会話ID取得（既存の会話を継続するか判定）
     conv_key = f"{member_key}:{room_id}"
-    cmd = [CLAUDE_COMMAND, "-p", prompt, "--conversation"]
     with _conv_id_lock:
         existing_conv_id = _conversation_ids.get(conv_key)
-    if existing_conv_id:
-        cmd.extend(["--resume", existing_conv_id])
-        log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒 conversation={existing_conv_id}")
-    else:
-        log.info(f">>> Claude Code 実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒 (新規会話)")
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=member_dir,
-            timeout=CLAUDE_TIMEOUT
-        )
-        log.info(f"<<< Claude Code 実行完了 [{member['name']}] (exit={result.returncode})")
+        result, new_conv_id = run_claude(prompt, member_dir, member["name"], existing_conv_id)
 
-        # conversation_id を stderr から抽出して保存
-        # claude --conversation は conversation_id（UUID形式等）を stderr に出力する
-        if result.stderr:
-            import re
-            for line in result.stderr.splitlines():
-                line = line.strip()
-                if line and re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
-                    with _conv_id_lock:
-                        _conversation_ids[conv_key] = line
-                        log.info(f"会話ID保存: {conv_key} = {line}")
-                    break
+        # 会話IDを保存
+        if new_conv_id:
+            with _conv_id_lock:
+                _conversation_ids[conv_key] = new_conv_id
+                log.info(f"会話ID保存: {conv_key} = {new_conv_id}")
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -462,14 +499,7 @@ def process_message(body: dict):
                     f"上記の情報をもとに、先ほどの「確認します」に対するフォローアップ返信を作成してください。"
                 )
                 try:
-                    log.info(f">>> Claude Code フォローアップ実行開始 [{member['name']}] cwd={member_dir} timeout={CLAUDE_TIMEOUT}秒")
-                    followup_result = subprocess.run(
-                        [CLAUDE_COMMAND, "-p", followup_prompt],
-                        capture_output=True, text=True,
-                        encoding="utf-8", errors="replace",
-                        cwd=member_dir, timeout=CLAUDE_TIMEOUT
-                    )
-                    log.info(f"<<< Claude Code フォローアップ実行完了 [{member['name']}] (exit={followup_result.returncode})")
+                    followup_result, _ = run_claude(followup_prompt, member_dir, f"{member['name']}(フォローアップ)")
                     followup_reply = followup_result.stdout.strip() if followup_result.stdout else ""
                     if followup_result.returncode == 0 and followup_reply:
                         log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
@@ -501,7 +531,6 @@ def process_message(body: dict):
             )
 
     except subprocess.TimeoutExpired:
-        log.error(f"<<< Claude Code タイムアウト [{member['name']}] ({CLAUDE_TIMEOUT}秒超過) cwd={member_dir}")
         notify_error(
             f"Claude Code タイムアウト [{member['name']}]",
             f"Claude Code が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}"
