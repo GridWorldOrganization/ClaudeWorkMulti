@@ -16,13 +16,16 @@ ChatWorkWebHookClient/
 ├── config.env.example         # ↑のテンプレート
 ├── members/
 │   ├── 00_common_rules.md     # 全メンバー共通ルール（Gitに含まれる）
-│   ├── templates/             # ペルソナ設定テンプレート（Gitに含まれる）
+│   ├── templates/             # テンプレート（Gitに含まれる）
 │   │   ├── 01_persona.md.example
+│   │   ├── mode.env.example
 │   │   └── setup_member.bat
 │   ├── 01_yokota/             # 横田百恵の設定（※Gitに含まれない）
-│   │   └── 01_persona.md
+│   │   ├── 01_persona.md
+│   │   └── mode.env           # デフォルト会話モード
 │   └── 02_fujino/             # 藤野楓の設定（※Gitに含まれない）
-│       └── 01_persona.md
+│       ├── 01_persona.md
+│       └── mode.env
 └── .gitignore
 ```
 
