@@ -19,8 +19,8 @@ import threading
 from datetime import datetime
 
 # ===== 設定 =====
-AWS_REGION = "ap-northeast-1"
-QUEUE_URL = "https://sqs.ap-northeast-1.amazonaws.com/REDACTED_AWS_ACCOUNT_ID/chatwork-webhook-queue"
+AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
+QUEUE_URL = os.environ.get("SQS_QUEUE_URL", "")
 POLL_INTERVAL = 5  # 秒
 CLAUDE_COMMAND = "claude"
 FOLLOWUP_WAIT_SECONDS = int(os.environ.get("FOLLOWUP_WAIT_SECONDS", "30"))
@@ -38,8 +38,8 @@ FOLLOWUP_KEYWORDS = [
 
 # Chatwork API
 CW_API_BASE = "https://api.chatwork.com/v2"
-CW_TOKEN_GURIKO = "REDACTED_CW_TOKEN_GURIKO"   # グリ姉（エラー報告用）
-CW_ERROR_ROOM_ID = 428354226                             # エラー報告先ルーム
+CW_TOKEN_GURIKO = os.environ.get("CW_TOKEN_GURIKO", "")
+CW_ERROR_ROOM_ID = int(os.environ.get("CW_ERROR_ROOM_ID", "0"))
 
 # 担当者設定（フォルダ名 → 設定）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -49,13 +49,13 @@ MEMBERS = {
     "01_yokota": {
         "name": "横田 百恵",
         "account_id": 11202266,
-        "cw_token": "REDACTED_CW_TOKEN_YOKOTA",
+        "cw_token": os.environ.get("CW_TOKEN_YOKOTA", ""),
         "dir": os.path.join(CLIENTS_DIR, "01_yokota"),
     },
     "02_fujino": {
         "name": "藤野 楓",
         "account_id": 11204912,
-        "cw_token": "REDACTED_CW_TOKEN_FUJINO",
+        "cw_token": os.environ.get("CW_TOKEN_FUJINO", ""),
         "dir": os.path.join(CLIENTS_DIR, "02_fujino"),
     },
 }
@@ -503,6 +503,20 @@ def process_member_batch(member_key, msg_list, sqs):
                 log.error(f"SQSメッセージ削除エラー: {e}")
 
 def main():
+    # 必須環境変数チェック
+    missing = []
+    if not QUEUE_URL:
+        missing.append("SQS_QUEUE_URL")
+    if not CW_TOKEN_GURIKO:
+        missing.append("CW_TOKEN_GURIKO")
+    for key, member in MEMBERS.items():
+        if not member["cw_token"]:
+            missing.append(f"CW_TOKEN ({key})")
+    if missing:
+        log.error(f"必須環境変数が未設定: {', '.join(missing)}")
+        log.error("config.env を config.env.example を参考に作成してください")
+        return
+
     sqs = boto3.client("sqs", region_name=AWS_REGION)
 
     # メンバーフォルダ存在確認
