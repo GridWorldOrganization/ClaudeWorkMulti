@@ -14,7 +14,6 @@ import logging
 import requests
 import os
 import glob
-import re
 import threading
 from datetime import datetime
 
@@ -83,10 +82,6 @@ _chain_lock = threading.Lock()
 _last_reply_time = {}
 _reply_time_lock = threading.Lock()
 
-# メンバー×ルームごとの会話ID管理
-# key: "member_key:room_id", value: conversation_id
-_conversation_ids = {}
-_conv_id_lock = threading.Lock()
 
 # ===== ログ設定 =====
 logging.basicConfig(
@@ -249,7 +244,7 @@ def save_chat_history(member_dir, room_id, sender_name, message, reply, member_n
     except Exception as e:
         log.error(f"会話記録保存エラー: {e}")
 
-def run_claude(prompt, cwd, member_name, conversation_id=None):
+def run_claude(prompt, cwd, member_name):
     """Claude Codeを実行。Windows CreateProcess制限(32,767文字)に対するガード付き。"""
     # Windows CreateProcess のコマンドライン長制限チェック
     MAX_CMD_LEN = 30000
@@ -257,13 +252,10 @@ def run_claude(prompt, cwd, member_name, conversation_id=None):
         log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {MAX_CMD_LEN}文字")
         prompt = prompt[:MAX_CMD_LEN] + "\n\n（以降省略）"
 
-    cmd = [CLAUDE_COMMAND, "-p", prompt, "--conversation"]
-    if conversation_id:
-        cmd.extend(["--resume", conversation_id])
+    cmd = [CLAUDE_COMMAND, "-p", prompt]
 
     log.info(f">>> Claude Code 実行開始 [{member_name}] cwd={cwd} timeout={CLAUDE_TIMEOUT}秒"
-             f" prompt_len={len(prompt)}"
-             f"{f' conversation={conversation_id}' if conversation_id else ' (新規会話)'}")
+             f" prompt_len={len(prompt)}")
 
     try:
         result = subprocess.run(
@@ -278,16 +270,7 @@ def run_claude(prompt, cwd, member_name, conversation_id=None):
 
         log.info(f"<<< Claude Code 実行完了 [{member_name}] (exit={result.returncode})")
 
-        # conversation_id を stderr から抽出
-        new_conv_id = None
-        if result.stderr:
-            for line in result.stderr.splitlines():
-                line = line.strip()
-                if line and re.match(r'^[a-zA-Z0-9\-_]{8,}$', line):
-                    new_conv_id = line
-                    break
-
-        return result, new_conv_id
+        return result
 
     except subprocess.TimeoutExpired:
         log.error(f"<<< Claude Code タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過) cwd={cwd}")
@@ -426,19 +409,8 @@ def process_message(body: dict):
         f"=== メッセージ本文 ===\n{message}"
     )
 
-    # 会話ID取得（既存の会話を継続するか判定）
-    conv_key = f"{member_key}:{room_id}"
-    with _conv_id_lock:
-        existing_conv_id = _conversation_ids.get(conv_key)
-
     try:
-        result, new_conv_id = run_claude(prompt, member_dir, member["name"], existing_conv_id)
-
-        # 会話IDを保存
-        if new_conv_id:
-            with _conv_id_lock:
-                _conversation_ids[conv_key] = new_conv_id
-                log.info(f"会話ID保存: {conv_key} = {new_conv_id}")
+        result = run_claude(prompt, member_dir, member["name"])
 
         reply = result.stdout.strip() if result.stdout else ""
 
@@ -486,7 +458,7 @@ def process_message(body: dict):
                     f"上記の情報をもとに、先ほどの「確認します」に対するフォローアップ返信を作成してください。"
                 )
                 try:
-                    followup_result, _ = run_claude(followup_prompt, member_dir, f"{member['name']}(フォローアップ)")
+                    followup_result = run_claude(followup_prompt, member_dir, f"{member['name']}(フォローアップ)")
                     followup_reply = followup_result.stdout.strip() if followup_result.stdout else ""
                     if followup_result.returncode == 0 and followup_reply:
                         log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
