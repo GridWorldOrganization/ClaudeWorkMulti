@@ -178,3 +178,34 @@ copy clients\templates\01_persona.md.example clients\01_yokota\01_persona.md
 | 二重返信が出る | 2台でポーラーが動いていないか確認。1台のみにする |
 | AI同士が止まらない | `MAX_AI_CONVERSATION_TURNS` を下げる |
 | 連続で同じ質問をぶつける | `REPLY_COOLDOWN_SECONDS` を上げる |
+| `Claude Code が見つかりません: claude` | 下記「PATHの設定」を参照 |
+
+### PATHの設定
+
+`claude` コマンドが `start_poller.bat`（cmd.exe）から見つからない場合、Windows のシステム環境変数に PATH を追加する必要があります。
+
+**1. claude のインストール先を確認（PowerShell で実行）**
+
+```powershell
+where.exe claude
+```
+
+出力例:
+```
+C:\Users\tobis\AppData\Roaming\npm\claude
+C:\Users\tobis\AppData\Roaming\npm\claude.cmd
+```
+
+**2. PATH にフォルダを追加（PowerShell で実行）**
+
+上記の例なら `C:\Users\tobis\AppData\Roaming\npm` を追加:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Users\tobis\AppData\Roaming\npm", "User")
+```
+
+**3. コマンドプロンプト/PowerShell を開き直す**
+
+既存のウィンドウには PATH 変更が反映されません。新しいウィンドウで `start_poller.bat` を実行してください。
+
+> **注意**: `claude install` でネイティブビルドに切り替えた場合、インストール先が異なる可能性があります。`where.exe claude` で実際のパスを確認してください。
