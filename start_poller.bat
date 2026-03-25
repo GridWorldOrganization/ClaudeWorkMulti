@@ -2,6 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 set AWS_DEFAULT_REGION=ap-northeast-1
+set "PATH=%PATH%;%APPDATA%\npm"
 
 REM config.env から環境変数を読み込み（コメント行・空行をスキップ）
 if exist config.env (
