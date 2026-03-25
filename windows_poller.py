@@ -990,23 +990,22 @@ def main():
         return
 
     # 必須設定チェック
-    missing = []
+    errors = []
     if not QUEUE_URL:
-        missing.append("SQS_QUEUE_URL (config.env)")
+        errors.append("SQS_QUEUE_URL が未設定です → config.env に SQS_QUEUE_URL=https://... を追加してください")
     if not CHATWORK_API_TOKEN_ERROR_REPORTER:
-        missing.append("CHATWORK_API_TOKEN_ERROR_REPORTER (config.env)")
+        errors.append("CHATWORK_API_TOKEN_ERROR_REPORTER が未設定です → config.env にエラー報告用ChatWorkアカウントのAPIトークンを設定してください")
     if CHATWORK_ERROR_ROOM_ID == 0:
-        missing.append("CHATWORK_ERROR_ROOM_ID (config.env)")
+        errors.append("CHATWORK_ERROR_ROOM_ID が未設定です → config.env にエラー報告先のChatWorkルームIDを設定してください")
     for key, member in MEMBERS.items():
         if not member["cw_token"]:
-            missing.append(f"CHATWORK_API_TOKEN ({key}/member.env)")
+            errors.append(f"{member['name']} の CHATWORK_API_TOKEN が未設定です → members/{key}/member.env にChatWork APIトークンを設定してください")
         if not member.get("allowed_rooms"):
-            log.warning(f"[{member['name']}] ALLOWED_ROOMS が空のため全送信不可です ({key}/member.env)")
-    if missing:
-        log.error("=== 起動失敗: 必須設定が未設定 ===")
-        for m in missing:
-            log.error(f"  - {m}")
-        log.error("config.env および各メンバーの member.env を確認してください")
+            log.warning(f"[{member['name']}] ALLOWED_ROOMS が空のため全ルーム送信不可です → members/{key}/member.env に許可ルームIDを設定してください")
+    if errors:
+        log.error("=== 起動失敗 ===")
+        for e in errors:
+            log.error(f"  {e}")
         return
 
     sqs = boto3.client("sqs", region_name=AWS_REGION)
