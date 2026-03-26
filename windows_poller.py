@@ -495,12 +495,14 @@ def run_claude_cli(prompt, cwd, member_name):
         cwd=cwd,
     )
 
+    log.info(f"Claude Code プロセス起動: pid={proc.pid}")
     with _process_lock:
         _active_processes.append(proc)
     _save_pid(proc.pid)
 
     try:
         stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
+        log.info(f"Claude Code プロセス終了: pid={proc.pid} exit={proc.returncode}")
         log.info(f"<<< {_ai_mode_label()} 実行完了 [{member_name}] (exit={proc.returncode})")
         return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
