@@ -271,7 +271,9 @@ def process_message(body: dict[str, Any]) -> None:
     # --- コマンド判定（デバッグ専用アカウント宛 → MEMBERS 外でも処理）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
     _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
-    is_command = raw_command in _COMMAND_KEYWORDS or re.match(r'^/talk\s+\d$', raw_command)
+    is_command = (raw_command in _COMMAND_KEYWORDS
+                  or re.match(r'^/talk\s+\d$', raw_command)
+                  or re.match(r'^/status\s+\d+$', raw_command))
 
     # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
     if (is_command
@@ -283,13 +285,25 @@ def process_message(body: dict[str, Any]) -> None:
         debug_token = DEBUG_NOTICE_CHATWORK_TOKEN
         log.info(f"デバッグコマンド '{raw_command}' 検出 (room={room_id})")
 
+        status_match = re.match(r'^/status\s+(\d+)$', raw_command)
         if raw_command == "/status":
-            # /status は全メンバーの概要を返す
-            lines = ["[info][title]/status: 全メンバー概要[/title]"]
-            for key, m in MEMBERS.items():
-                lines.append(f"  {m['name']} ({key}) account_id={m['account_id']}")
+            # /status（引数なし）: メンバー番号一覧を返す
+            lines = ["[info][title]/status: メンバー一覧[/title]"]
+            for idx, (key, m) in enumerate(MEMBERS.items(), 1):
+                lines.append(f"  {idx}. {m['name']} ({key})")
+            lines.append(f"\n詳細: /status [番号]")
             lines.append("[/info]")
             chatwork_post(debug_token, room_id, "\n".join(lines))
+            return
+        if status_match:
+            # /status N: 指定番号のメンバー詳細を返す
+            num = int(status_match.group(1))
+            member_list = list(MEMBERS.items())
+            if 1 <= num <= len(member_list):
+                target_key, target_member = member_list[num - 1]
+                chatwork_post(debug_token, room_id, handle_status(target_member, room_id))
+            else:
+                chatwork_post(debug_token, room_id, f"無効な番号です。1〜{len(member_list)} を指定してください。")
             return
         if raw_command == "/session":
             chatwork_post(debug_token, room_id, handle_session(room_id))
