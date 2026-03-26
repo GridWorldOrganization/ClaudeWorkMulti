@@ -61,7 +61,16 @@ ClaudeWorkMulti/
 ├── CHANGELOG.md               # 変更履歴
 ├── CONTRIBUTING.md            # コントリビューションガイド
 ├── QUICKSTART.md              # クイックスタートガイド
-├── windows_poller.py          # ポーラーメインスクリプト
+├── windows_poller.py          # エントリポイント（start_poller.bat から呼出）
+├── poller/                    # Python パッケージ
+│   ├── config.py              # 設定・定数・メンバー検出
+│   ├── state.py               # グローバル状態（ロック付き）
+│   ├── chatwork.py            # ChatWork API ヘルパー
+│   ├── ai_runner.py           # AI実行（API直接 / CLI）・PID管理
+│   ├── google_workspace.py    # Google URL検出・内容取得
+│   ├── commands.py            # /status /system /bill /gws /talk ハンドラ
+│   ├── processor.py           # メッセージ処理・バッチ処理
+│   └── main.py                # メインループ・起動チェック
 ├── check_gws.py               # Google Workspace API チェッカー
 ├── start_poller.bat           # 起動（自動ゾンビkill + 再起動）
 ├── setup_windows.bat          # 初回セットアップ
