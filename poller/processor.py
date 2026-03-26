@@ -560,9 +560,22 @@ def process_message(body: dict[str, Any]) -> None:
 
     # --- AI 実行 ---
     ai_start_time = time.time()
+    # ルーム名取得
+    _room_name = ""
+    try:
+        _room_res = requests.get(
+            f"{CHATWORK_API_BASE}/rooms/{room_id}",
+            headers={"X-ChatWorkToken": member["cw_token"]},
+            timeout=CHATWORK_API_TIMEOUT,
+        )
+        if _room_res.status_code == 200:
+            _room_name = _room_res.json().get("name", "")
+    except Exception:
+        pass
+    _room_label = f"{_room_name}({room_id})" if _room_name else str(room_id)
     notify_error(
-        f"Claude起動 [{member['name']}]",
-        f"送信者: {sender_name} / ルーム: {room_id} / モード: {talk_info['name']}",
+        f"Claude起動 [{member['name']}] 送信者: {sender_name} / ルーム: {_room_label} / 会話モード: {talk_info['name']}",
+        "",
     )
     try:
         if member_key:
@@ -606,8 +619,8 @@ def process_message(body: dict[str, Any]) -> None:
     finally:
         ai_elapsed = time.time() - ai_start_time
         notify_error(
-            f"Claude終了 [{member['name']}]",
-            f"{ai_elapsed:.1f}秒 / ルーム: {room_id}",
+            f"Claude終了 [{member['name']}] {ai_elapsed:.1f}秒 / ルーム: {_room_label}",
+            "",
         )
         if member_key:
             with state.session_lock:

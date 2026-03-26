@@ -177,12 +177,12 @@ def handle_session(room_id: str) -> str:
                 elapsed = time.time() - s["started"] if s["started"] else 0
                 lines.append(
                     f"  {member['name']}: 実行中 "
-                    f"({elapsed:.0f}秒経過/{CLAUDE_TIMEOUT}秒) "
-                    f"model={s['model']} room={s['room_id']}"
+                    f"({elapsed:.0f}秒経過/{CLAUDE_TIMEOUT}秒), "
+                    f"model: {s['model']}, room: {s['room_id']}"
                 )
             else:
                 lines.append(f"  {member['name']}: 停止中")
-    lines.append(f"\n  グローバル設定: model={CLAUDE_MODEL} timeout={CLAUDE_TIMEOUT}秒")
+    lines.append(f"\n  グローバル設定: model: {CLAUDE_MODEL}, timeout: {CLAUDE_TIMEOUT}秒")
     lines.append("[/info]")
     return "\n".join(lines)
 
@@ -417,7 +417,7 @@ def handle_talk_start() -> str:
     for idx, (key, m) in enumerate(MEMBERS.items(), 1):
         default_mode, _ = load_talk_modes(m["dir"])
         mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
-        lines.append(f"  {idx}: {m['name']}（現在: {default_mode} {mode_name}）")
+        lines.append(f"  {idx}: {m['name']}（デフォルト会話モード: {default_mode} {mode_name}）")
     lines.append("\n番号を返信してください。")
     state.talk_session = {"state": "select_member"}
     return "\n".join(lines)

@@ -43,7 +43,7 @@ def notify_error(title: str, detail: str) -> None:
     if not DEBUG_NOTICE_ENABLED or not DEBUG_NOTICE_CHATWORK_TOKEN or not DEBUG_NOTICE_CHATWORK_ROOM_ID:
         log.warning(f"[通知スキップ] {title}: {detail[:200]}")
         return
-    msg = f"[info][title]{title}[/title]{detail}[/info]"
+    msg = f"[info][title]{title}[/title]{detail}[/info]" if detail else title
     chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, msg)
 
 
