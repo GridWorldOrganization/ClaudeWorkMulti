@@ -5,11 +5,11 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![Claude](https://img.shields.io/badge/AI-Claude_(Anthropic)-orange)
 
-> **Multi-AI member auto-reply system for ChatWork, powered by Claude (Anthropic API / Claude Code CLI).**
+> **Multi-AI persona generation system for ChatWork, powered by Claude (Anthropic API / Claude Code CLI).**
 > Each AI member has its own persona, conversation mode, and room-specific settings.
 > Messages are received via AWS SQS and processed in parallel threads per member.
 
-ChatWork × Claude（Anthropic API / Claude Code）による複数AIメンバー自動返信システム。
+ChatWork × Claude（Anthropic API / Claude Code）による複数AI人格生成システム。
 
 ChatWorkでメンバー宛にメッセージを送ると、各メンバーのペルソナに基づいてAI返信します。
 複数メンバーが並列で動作し、ルームごとの会話モードやルーム別口調に対応しています。
