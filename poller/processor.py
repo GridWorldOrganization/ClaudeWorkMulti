@@ -500,9 +500,10 @@ def process_message(body: dict[str, Any]) -> None:
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
 
-    # --- モード 0（ログ）: 雑談フィルタ ---
+    # --- モード 0（ログ）: 雑談フィルタ → 定型返信 ---
     if talk_mode == 0 and _is_casual_chat(message):
-        log.info(f"[{member['name']}] ログモード: 雑談メッセージをスキップ")
+        log.info(f"[{member['name']}] ログモード: 雑談メッセージ → 定型返信")
+        chatwork_post(member["cw_token"], room_id, "...。")
         return
 
     instructions = _load_instructions(member_dir, room_id)
