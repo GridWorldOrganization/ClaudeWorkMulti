@@ -825,6 +825,104 @@ def handle_session_command(room_id):
     return "\n".join(lines)
 
 
+def handle_gws_command():
+    """/gws: Google Workspace CLI の利用可否を調べて報告する"""
+    lines = ["[info][title]/gws: Google Workspace CLI[/title]"]
+
+    # gws コマンドの存在チェック
+    gws_version = None
+    gws_path = None
+    try:
+        result = subprocess.run(
+            ["gws", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            gws_version = result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        lines.append(f"チェック中にエラー: {e}")
+
+    if not gws_version:
+        # バージョン取得失敗 → help で再試行
+        try:
+            result = subprocess.run(
+                ["gws", "help"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                gws_version = "(version unknown)"
+        except (FileNotFoundError, Exception):
+            pass
+
+    # パスを検索
+    if gws_version:
+        try:
+            if os.name == "nt":
+                where_result = subprocess.run(
+                    ["where", "gws"], capture_output=True, text=True, timeout=5,
+                )
+            else:
+                where_result = subprocess.run(
+                    ["which", "gws"], capture_output=True, text=True, timeout=5,
+                )
+            if where_result.returncode == 0:
+                gws_path = where_result.stdout.strip().split("\n")[0]
+        except Exception:
+            pass
+
+    # 認証状態チェック
+    auth_status = None
+    if gws_version:
+        try:
+            result = subprocess.run(
+                ["gws", "auth", "status"],
+                capture_output=True, text=True, timeout=10,
+            )
+            auth_status = (result.stdout.strip() + "\n" + result.stderr.strip()).strip()
+            if not auth_status:
+                auth_status = f"exit={result.returncode}"
+        except Exception as e:
+            auth_status = f"チェック失敗: {e}"
+
+    # 利用可能なサービス一覧
+    services = None
+    if gws_version:
+        try:
+            result = subprocess.run(
+                ["gws", "help"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                services = result.stdout.strip()
+        except Exception:
+            pass
+
+    # 結果を構築
+    if gws_version:
+        lines.append(f"状態: 利用可能")
+        lines.append(f"バージョン: {gws_version}")
+        if gws_path:
+            lines.append(f"パス: {gws_path}")
+        if auth_status:
+            lines.append(f"\n■ 認証状態")
+            lines.append(f"  {auth_status}")
+        if services:
+            lines.append(f"\n■ ヘルプ出力")
+            # 長すぎる場合は先頭500文字に制限
+            lines.append(f"  {services[:500]}")
+    else:
+        lines.append("状態: 未インストール")
+        lines.append("")
+        lines.append("インストール方法:")
+        lines.append("  https://github.com/googleworkspace/cli")
+        lines.append("  go install github.com/googleworkspace/cli/cmd/gws@latest")
+
+    lines.append("[/info]")
+    return "\n".join(lines)
+
+
 # =============================================================================
 #  メッセージ処理（メインのビジネスロジック）
 # =============================================================================
@@ -966,6 +1064,12 @@ def process_message(body: dict):
         new_mode = int(talk_match.group(1))
         log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
         chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
+        return
+
+    # /gws: Google Workspace CLI 状態確認（全許可ルームで動作、AI不使用）
+    if raw_command == "/gws":
+        log.info(f"/gws コマンド検出: {member['name']} room={room_id}")
+        chatwork_post(member["cw_token"], room_id, handle_gws_command())
         return
 
     # /status, /session: メンテナンスルーム限定
