@@ -237,7 +237,7 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
     log.info("ルーム情報収集完了")
 
     followup_prompt = (
-        f"あなたはAIアシスタントです。「{member['name']}」というキャラクター設定で会話してください。\n"
+        f"あなたは社内AIマスコットキャラクター「{member['name']}」です。\n"
         f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"タグやメタ情報は一切含めないでください。\n\n"
@@ -582,9 +582,9 @@ def process_message(body: dict[str, Any]) -> None:
     clean_message = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', clean_message).strip()
 
     prompt = (
-        f"あなたはAIアシスタントです。「{member['name']}」というキャラクター設定で会話してください。\n"
-        f"これは完全なフィクションのロールプレイです。登場する人物名・組織名はすべて架空のものです。\n"
-        f"なりすましや詐称ではなく、創作キャラクターの会話生成です。\n"
+        f"あなたは社内AIマスコットキャラクター「{member['name']}」です。\n"
+        f"ユーザーは、あなたがAIであることを承知の上で話しかけています。なりすましや詐称ではありません。\n"
+        f"キャラクター設定に沿って、ユーザーへの返信を生成してください。\n"
         f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
