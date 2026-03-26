@@ -12,20 +12,40 @@ echo.
 
 set COUNT=0
 
-for /f "tokens=1,2 delims=," %%A in ('tasklist /FO CSV /NH 2^>nul ^| findstr /i "claude"') do (
+REM --- Native claude.exe ---
+for /f "tokens=1,2 delims=," %%A in ('tasklist /FO CSV /NH 2^>nul ^| findstr /i "claude.exe"') do (
     set /a COUNT+=1
     set "PROC_NAME=%%~A"
     set "PROC_PID=%%~B"
     set "PID_!COUNT!=!PROC_PID!"
     set "NAME_!COUNT!=!PROC_NAME!"
 
-    set "TAG="
+    set "TAG=[Native]"
     if exist ".claude_pids" (
         for /f "usebackq" %%P in (".claude_pids") do (
-            if "%%P"=="!PROC_PID!" set "TAG= *POLLER*"
+            if "%%P"=="!PROC_PID!" set "TAG=[Native] *POLLER*"
         )
     )
-    echo   !COUNT!. !PROC_NAME!  PID=!PROC_PID!!TAG!
+    echo   !COUNT!. !PROC_NAME!  PID=!PROC_PID!  !TAG!
+)
+
+REM --- npm node.exe (claude command line) ---
+for /f "tokens=2 delims=," %%P in ('wmic process where "name='node.exe'" get ProcessId /FORMAT:CSV 2^>nul ^| findstr /r "[0-9]"') do (
+    set "NODE_PID=%%P"
+    REM Get command line for this PID
+    for /f "tokens=*" %%C in ('wmic process where "ProcessId=!NODE_PID!" get CommandLine /FORMAT:LIST 2^>nul ^| findstr /i "claude"') do (
+        set /a COUNT+=1
+        set "PID_!COUNT!=!NODE_PID!"
+        set "NAME_!COUNT!=node.exe"
+
+        set "TAG=[npm]"
+        if exist ".claude_pids" (
+            for /f "usebackq" %%Q in (".claude_pids") do (
+                if "%%Q"=="!NODE_PID!" set "TAG=[npm] *POLLER*"
+            )
+        )
+        echo   !COUNT!. node.exe  PID=!NODE_PID!  !TAG!
+    )
 )
 
 if !COUNT!==0 (
