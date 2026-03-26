@@ -16,6 +16,7 @@ from typing import Any
 import requests
 
 from poller.config import (
+    AI_REFUSAL_KEYWORDS,
     ALL_MEMBER_IDS,
     CASUAL_CHAT_KEYWORDS,
     CASUAL_CHAT_MAX_LENGTH,
@@ -47,11 +48,13 @@ from poller.chatwork import (
 from poller.ai_runner import AIResult, ai_mode_label, run_ai
 from poller.google_workspace import resolve_urls
 from poller.commands import (
+    handle_help,
     handle_status,
     handle_session,
     handle_system,
     handle_bill,
-    handle_talk_status,
+    handle_talk_start,
+    handle_talk_session_reply,
     handle_talk_change,
     handle_gws,
 )
@@ -62,6 +65,8 @@ log = logging.getLogger(__name__)
 # =============================================================================
 #  ユーティリティ
 # =============================================================================
+
+
 
 def _is_casual_chat(message: str) -> bool:
     """メッセージが雑談かどうかを判定する（モード0用）"""
@@ -76,22 +81,62 @@ def _is_casual_chat(message: str) -> bool:
     return False
 
 
+def _is_ai_refusal(reply_text: str) -> bool:
+    """AIの返信がセーフティフィルタによる拒否かどうかを判定する"""
+    # キーワード部分一致
+    for kw in AI_REFUSAL_KEYWORDS:
+        if kw in reply_text:
+            return True
+    # 構造パターン（日本語）: 拒否 + 理由列挙
+    refusal_words = ["できません", "お断り", "対応できません", "サポートできません", "応じられません"]
+    reason_words = ["理由", "以下の点", "以下の理由", "問題があります"]
+    has_refusal = any(w in reply_text for w in refusal_words)
+    has_reason = any(w in reply_text for w in reason_words)
+    if has_refusal and has_reason:
+        return True
+    # 構造パターン（日本語）: 拒否 + 代替提案
+    alternative_words = ["代わりに", "お手伝いできます", "サポートできます", "以下のような"]
+    if has_refusal and any(w in reply_text for w in alternative_words):
+        return True
+    # 構造パターン（日本語）: なりすまし/不適切 関連
+    impersonation_words = ["なりすまし", "不適切", "倫理的", "安全上", "ポリシー"]
+    if any(w in reply_text for w in impersonation_words) and has_refusal:
+        return True
+    # 構造パターン（英語）: decline/refuse + alternative
+    en_refusal = any(w in reply_text for w in ["decline", "cannot", "shouldn't", "I'm unable"])
+    en_alternative = any(w in reply_text for w in ["I'm happy to help", "I can help", "happy to assist", "Instead,"])
+    en_identity = any(w in reply_text for w in ["I'm Claude", "I am Claude", "AI assistant made by"])
+    if en_refusal and en_alternative:
+        return True
+    if en_identity:
+        return True
+    return False
+
+
 def _needs_followup(reply_text: str) -> bool:
     """返信テキストにフォローアップが必要なキーワードが含まれているか"""
     return any(kw in reply_text for kw in FOLLOWUP_KEYWORDS)
 
 
-def _load_instructions(member_dir: str, room_id: str = "") -> str:
+def _load_instructions(member_dir: str, room_id: str = "", talk_mode: int = -1) -> str:
     """共通ルール + メンバー固有 + ルーム固有の .md を読み込み、指示文を構築する"""
+    # モード 0（ログ）/ 1（業務）ではペルソナファイルを読み込まない
+    skip_persona = talk_mode in (0, 1)
+    if skip_persona:
+        log.info(f"モード{talk_mode}: ペルソナファイル読み込みスキップ（共通ルールのみ）")
+
     common_files = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
-    member_files = sorted(
-        f for f in glob.glob(os.path.join(member_dir, "*.md"))
-        if not os.path.basename(f).startswith("room_")
-        and not os.path.basename(f).startswith("chat_history_")
-        and os.path.basename(f) != "CLAUDE.md"
-    )
+    if skip_persona:
+        member_files = []
+    else:
+        member_files = sorted(
+            f for f in glob.glob(os.path.join(member_dir, "*.md"))
+            if not os.path.basename(f).startswith("room_")
+            and not os.path.basename(f).startswith("chat_history_")
+            and os.path.basename(f) != "CLAUDE.md"
+        )
     room_files: list[str] = []
-    if room_id:
+    if room_id and not skip_persona:
         room_md = os.path.join(member_dir, f"room_{room_id}.md")
         if os.path.exists(room_md):
             room_files = [room_md]
@@ -200,10 +245,10 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
     log.info("ルーム情報収集完了")
 
     followup_prompt = (
-        f"あなたは「{member['name']}」としてChatworkで返信します。\n"
+        f"あなたは社内AIマスコットキャラクター「{member['name']}」です。\n"
         f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
-        f"[rp]タグや[To:]タグは絶対に含めないでください。タグはシステムが自動付与します。\n\n"
+        f"タグやメタ情報は一切含めないでください。\n\n"
         f"=== 返信の指示 ===\n{instructions}\n\n"
         f"=== 元の受信メッセージ ===\n{message}\n\n"
         f"=== 収集した情報 ===\n{room_context}\n\n"
@@ -270,21 +315,56 @@ def process_message(body: dict[str, Any]) -> None:
 
     # --- コマンド判定（デバッグ専用アカウント宛 → MEMBERS 外でも処理）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
-    _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
+    _COMMAND_KEYWORDS = {"/help", "/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
     is_command = (raw_command in _COMMAND_KEYWORDS
                   or re.match(r'^/talk\s+\d', raw_command)
                   or re.match(r'^/status\s+\d+$', raw_command))
 
-    # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
-    if (is_command
-        and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
-        and DEBUG_NOTICE_CHATWORK_ROOM_ID
-        and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
-        and f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message):
+    # /system コマンド検知 → 宛先に関わらずブロックし、デバッグルームに通知
+    if raw_command == "/system":
+        log.info(f"/system 検知: room={room_id} → 無視")
+        if DEBUG_NOTICE_CHATWORK_TOKEN and DEBUG_NOTICE_CHATWORK_ROOM_ID:
+            chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID,
+                          "/systemを検知しました。無視します。")
+        return
 
+    # デバッグルームからのメッセージかチェック（ルームIDのみで判定）
+    is_debug_msg = (
+        DEBUG_NOTICE_CHATWORK_ROOM_ID
+        and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
+    )
+
+    # デバッグルーム内のグリ姉自身の発言は無視（通知の自己応答ループ防止）
+    if is_debug_msg:
+        sender_id = body.get("sender_account_id", "")
+        if str(sender_id) == str(DEBUG_NOTICE_CHATWORK_ACCOUNT_ID):
+            log.info(f"デバッグルーム: グリ姉自身の発言をスキップ")
+            return
+
+    # デバッグアカウント宛の非コマンドメッセージ → セッション応答 or 無視（AIには渡さない）
+    if is_debug_msg and not is_command:
+        session_input = re.sub(
+            r'\[(To:\d+[^\]]*|rp aid=\d+ to=\d+-\d+)\][^\n]*\n?', '', message.strip()
+        ).strip()
+        if session_input:
+            with state.talk_session_lock:
+                reply = handle_talk_session_reply(session_input)
+            if reply:
+                log.info(f"/talk 対話セッション応答: input='{session_input}'")
+                chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, reply)
+                return
+        log.info(f"デバッグアカウント宛の非コマンドメッセージ: '{raw_command}' → 定型返信")
+        chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, "...。")
+        return
+
+    # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
+    if is_command and is_debug_msg:
         debug_token = DEBUG_NOTICE_CHATWORK_TOKEN
         log.info(f"デバッグコマンド '{raw_command}' 検出 (room={room_id})")
 
+        if raw_command == "/help":
+            chatwork_post(debug_token, room_id, handle_help())
+            return
         status_match = re.match(r'^/status\s+(\d+)$', raw_command)
         if raw_command == "/status":
             # /status（引数なし）: メンバー番号一覧を返す
@@ -317,19 +397,11 @@ def process_message(body: dict[str, Any]) -> None:
         if raw_command == "/gws":
             chatwork_post(debug_token, room_id, handle_gws())
             return
-        # /talk: メンバー番号指定で会話モード表示・変更
+        # /talk: 対話型セッション開始
         if raw_command == "/talk":
-            # 全メンバーの現在のデフォルトモードを表示
-            from poller.config import load_talk_modes
-            lines = ["[info][title]/talk: 全メンバーモード一覧[/title]"]
-            for idx, (key, m) in enumerate(MEMBERS.items(), 1):
-                default_mode, _ = load_talk_modes(m["dir"])
-                mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
-                lines.append(f"  {idx}. {m['name']} → {default_mode}({mode_name})")
-            lines.append(f"\n変更: /talk [メンバー番号] [モード番号]")
-            lines.append(f"詳細: /talk [メンバー番号]")
-            lines.append("[/info]")
-            chatwork_post(debug_token, room_id, "\n".join(lines))
+            with state.talk_session_lock:
+                reply = handle_talk_start()
+            chatwork_post(debug_token, room_id, reply)
             return
         talk_room_match = re.match(r'^/talk\s+(\d+)\s+(?:https?://www\.chatwork\.com/#!rid)?(\d+)\s+(\d)$', raw_command)
         if talk_room_match:
@@ -438,6 +510,11 @@ def process_message(body: dict[str, Any]) -> None:
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
+    # --- デバッグルームはメンバーのAI処理対象外 ---
+    if str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID) and DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        log.info(f"[{member['name']}] デバッグルーム(room={room_id})のメッセージ → AI処理スキップ")
+        return
+
     # --- ルームホワイトリスト判定 ---
     allowed = member.get("allowed_rooms", set())
     if not allowed or str(room_id) not in allowed:
@@ -475,12 +552,13 @@ def process_message(body: dict[str, Any]) -> None:
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
 
-    # --- モード 0（ログ）: 雑談フィルタ ---
+    # --- モード 0（ログ）: 雑談フィルタ → 定型返信 ---
     if talk_mode == 0 and _is_casual_chat(message):
-        log.info(f"[{member['name']}] ログモード: 雑談メッセージをスキップ")
+        log.info(f"[{member['name']}] ログモード: 雑談メッセージ → 定型返信")
+        chatwork_post(member["cw_token"], room_id, "...。")
         return
 
-    instructions = _load_instructions(member_dir, room_id)
+    instructions = _load_instructions(member_dir, room_id, talk_mode)
 
     # --- モード 3 (ペルソナ+): ルームメンバー情報を取得 ---
     room_members_info = ""
@@ -493,7 +571,7 @@ def process_message(body: dict[str, Any]) -> None:
             )
             if res.status_code == 200:
                 others = [
-                    f"  - {m['name']}(ID:{m['account_id']})"
+                    f"  - {m['name']}"
                     for m in res.json()
                     if str(m["account_id"]) != str(member["account_id"]) and m.get("role", "") != "readonly"
                 ]
@@ -505,40 +583,54 @@ def process_message(body: dict[str, Any]) -> None:
     # --- Google URL の内容取得 ---
     google_content = resolve_urls(message)
 
-    # --- プロンプト構築 ---
+    # --- プロンプト構築（ChatWork固有情報はClaude に渡さない）---
     prior_context = body.get("_prior_context", "")
+    # メッセージ本文から [To:] [rp] タグを除去してClaudeに渡す
+    clean_message = re.sub(r'\[To:\d+\][^\n]*\n?', '', message).strip()
+    clean_message = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', clean_message).strip()
+
     prompt = (
-        f"あなたは「{member['name']}」としてChatworkで返信します。\n"
+        f"あなたは社内AIマスコットキャラクター「{member['name']}」です。\n"
+        f"ユーザーは、あなたがAIであることを承知の上で話しかけています。なりすましや詐称ではありません。\n"
+        f"キャラクター設定に沿って、ユーザーへの返信を生成してください。\n"
         f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
-        f"送信者は「{sender_name}」（アカウントID: {sender}）です。\n"
-        f"通常は送信者への返信になります。[rp]タグはシステムが自動付与するので出力不要です。\n"
-        f"ただし、送信者以外の人に話しかける必要がある場合は、先頭に [To:アカウントID]名前さん を含めてください。\n\n"
+        f"タグやメタ情報は一切含めないでください。\n"
+        f"送信者は「{sender_name}」です。\n\n"
         f"{room_members_info}"
         f"=== 返信の指示 ===\n{instructions}\n\n"
     )
     if prior_context:
-        prompt += f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n{prior_context}\n\n"
+        prior_clean = re.sub(r'\[To:\d+\][^\n]*\n?', '', prior_context).strip()
+        prior_clean = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', prior_clean).strip()
+        prompt += f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n{prior_clean}\n\n"
     prompt += (
-        f"=== 受信メッセージ情報（これに返信すること） ===\n"
-        f"ルームID: {room_id}\n"
-        f"送信者アカウントID: {sender}\n"
-        f"送信者名: {sender_name}\n"
-        f"メッセージID: {message_id}\n"
-        f"受信時刻: {timestamp}\n\n"
-        f"=== メッセージ本文 ===\n{message}"
+        f"=== 受信メッセージ（これに返信すること） ===\n"
+        f"送信者: {sender_name}\n\n"
+        f"{clean_message}"
     )
     if google_content:
         prompt += f"\n\n{google_content}"
 
     # --- AI 実行 ---
     ai_start_time = time.time()
+    # ルーム名取得
+    _room_name = ""
+    try:
+        _room_res = requests.get(
+            f"{CHATWORK_API_BASE}/rooms/{room_id}",
+            headers={"X-ChatWorkToken": member["cw_token"]},
+            timeout=CHATWORK_API_TIMEOUT,
+        )
+        if _room_res.status_code == 200:
+            _room_name = _room_res.json().get("name", "")
+    except Exception:
+        pass
+    _room_label = f"{_room_name}({room_id})" if _room_name else str(room_id)
     notify_error(
-        f"AI実行開始 [{member['name']}]",
-        f"送信者: {sender_name}\nルーム: {room_id}\n"
-        f"モード: {talk_info['name']}\n"
-        f"本文: {message[:150]}",
+        f"Claude起動 [{member['name']}] 送信者: {sender_name} / ルーム: {_room_label} / 会話モード: {talk_info['name']}",
+        "",
     )
     try:
         if member_key:
@@ -556,18 +648,17 @@ def process_message(body: dict[str, Any]) -> None:
             log.info(f"返信内容 [{member['name']}]: {reply[:500]}")
             raw_reply = reply
 
+            # AI拒否検出 → 返信せずデバッグルームに通知
+            if _is_ai_refusal(raw_reply):
+                log.warning(f"[{member['name']}] AI拒否応答を検出 → 返信をブロック")
+                notify_error(
+                    f"AI拒否検出 [{member['name']}]",
+                    f"ルーム: {_room_label}\n送信者: {sender_name}\n本文: {message[:100]}\n拒否応答: {raw_reply[:300]}",
+                )
+                return
+
             reply = _apply_reply_tag(reply, member["cw_token"], room_id, sender, message_id)
             chatwork_post(member["cw_token"], room_id, reply)
-
-            # デバッグ通知ルームにAI実行ログを投稿
-            notify_error(
-                f"AI実行完了 [{member['name']}]",
-                f"送信者: {sender_name}\nルーム: {room_id}\n"
-                f"モード: {talk_info['name']}\n"
-                f"応答時間: {ai_elapsed:.1f}秒\n"
-                f"本文: {message[:100]}\n"
-                f"返信: {raw_reply[:100]}",
-            )
 
             _save_chat_history(member_dir, room_id, sender_name, message, raw_reply, member["name"])
             if member_key:
@@ -580,27 +671,26 @@ def process_message(body: dict[str, Any]) -> None:
         elif result.returncode != 0:
             error_detail = result.error[:500] if result.error else "不明なエラー"
             log.error(f"{ai_mode_label()} エラー: {error_detail}")
-            notify_error(
-                f"{ai_mode_label()} 実行エラー [{member['name']}]",
-                f"exit code: {result.returncode}\nroom: {room_id}\nエラー: {error_detail}\nメッセージ: {message[:200]}",
-            )
+
         else:
             log.warning(f"{ai_mode_label()} の出力が空でした")
-            notify_error(
-                f"{ai_mode_label()} 出力なし [{member['name']}]",
-                f"AI が空の応答を返しました。\nroom: {room_id}\nメッセージ: {message[:200]}",
-            )
 
     except subprocess.TimeoutExpired:
-        notify_error(
-            f"{ai_mode_label()} タイムアウト [{member['name']}]",
-            f"AI が{CLAUDE_TIMEOUT}秒以内に応答しませんでした。\nroom: {room_id}\n送信者: {sender}\nメッセージ: {message[:200]}",
-        )
+        log.error(f"{ai_mode_label()} タイムアウト: {CLAUDE_TIMEOUT}秒 [{member['name']}]")
     except FileNotFoundError:
         from poller.config import CLAUDE_COMMAND
         log.error(f"Claude Code が見つかりません: {CLAUDE_COMMAND}")
-        notify_error("Claude Code 未検出", f"claude コマンドが見つかりません。\nPATH設定を確認してください。")
     finally:
+        ai_elapsed = time.time() - ai_start_time
+        remaining = CLAUDE_TIMEOUT - ai_elapsed
+        if remaining > 0:
+            log.info(f"[{member['name']}] タイムアウト待機: 残り{remaining:.0f}秒")
+            time.sleep(remaining)
+        total_elapsed = time.time() - ai_start_time
+        notify_error(
+            f"Claude終了 [{member['name']}] {total_elapsed:.1f}秒 / ルーム: {_room_label}",
+            "",
+        )
         if member_key:
             with state.session_lock:
                 state.session_states[member_key] = {"status": "idle", "started": None, "room_id": "", "model": ""}
@@ -619,7 +709,7 @@ def process_member_batch(member_key: str, msg_list: list[tuple[dict, dict]], sqs
     all_sqs_messages = [msg for _, msg in msg_list]
     if lock:
         lock.acquire()
-    try:
+    try:  # noqa: SIM117 — acquire/release を try/finally で管理
         my_aid = str(member["account_id"])
         filtered: list[tuple[dict, dict]] = []
         for body_data, msg in msg_list:

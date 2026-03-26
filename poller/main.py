@@ -22,6 +22,7 @@ from poller.config import (
     CLAUDE_COMMAND,
     CLAUDE_MODEL,
     CLAUDE_TIMEOUT,
+    DEBUG_NOTICE_CHATWORK_ACCOUNT_ID,
     DEBUG_NOTICE_CHATWORK_ROOM_ID,
     DEBUG_NOTICE_CHATWORK_TOKEN,
     DEBUG_NOTICE_ENABLED,
@@ -84,12 +85,46 @@ def _drain_sqs_queue(sqs: Any) -> list[dict[str, Any]]:
     return all_messages
 
 
+def _is_debug_room_message(body_data: dict[str, Any]) -> bool:
+    """デバッグルームからのメッセージか判定する（ルームIDのみで判定）"""
+    if not DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        return False
+    room_id = body_data.get("room_id", "")
+    return str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
+
+
+def _process_debug_message(body_data: dict[str, Any], msg: dict[str, Any], sqs: Any) -> None:
+    """デバッグルームのメッセージをロックなしで即時処理する"""
+    log.info(f"デバッグメッセージ処理開始: room={body_data.get('room_id', '')} body={str(body_data.get('body', ''))[:100]}")
+    try:
+        from poller.processor import process_message
+        process_message(body_data)
+    except Exception as e:
+        log.error(f"デバッグメッセージ処理エラー: {e}")
+    finally:
+        try:
+            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
+        except Exception as e:
+            log.error(f"SQSメッセージ削除エラー: {e}")
+
+
 def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
-    """メッセージをメンバーごとにグループ化し、並列スレッドで処理する"""
+    """メッセージをメンバーごとにグループ化し、並列スレッドで処理する（ノンブロッキング）"""
     member_messages: dict[str, list[tuple[dict, dict]]] = {}
+
     for msg in all_messages:
         try:
             body_data = json.loads(msg["Body"])
+
+            # デバッグルーム宛 → メンバーロックを経由せず即時処理（別スレッド）
+            if _is_debug_room_message(body_data):
+                t = threading.Thread(
+                    target=_process_debug_message, args=(body_data, msg, sqs), daemon=True,
+                )
+                t.start()
+                log.info(f"デバッグメッセージ即時処理スレッド起動")
+                continue
+
             member = find_target_member(body_data)
             if not member:
                 member = MEMBERS[next(iter(MEMBERS))]
@@ -99,18 +134,10 @@ def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
             log.error(f"メッセージ解析エラー: {e}")
             sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=msg["ReceiptHandle"])
 
-    threads: list[threading.Thread] = []
     for mk, msg_list in member_messages.items():
         t = threading.Thread(target=process_member_batch, args=(mk, msg_list, sqs), daemon=True)
         t.start()
-        threads.append(t)
         log.info(f"バッチスレッド起動: {mk} ({len(msg_list)}件)")
-
-    thread_timeout = CLAUDE_TIMEOUT * 2 + FOLLOWUP_WAIT_SECONDS + REPLY_COOLDOWN_SECONDS + 60
-    for t in threads:
-        t.join(timeout=thread_timeout)
-        if t.is_alive():
-            log.error(f"スレッドがタイムアウト({thread_timeout}秒)しました。次のポーリングに進みます。")
 
 
 # =============================================================================
@@ -228,22 +255,41 @@ def main() -> None:
         )
         room_specific = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
         all_instruction_files = common_files + member_files + room_specific
-        log.info(f"    指示ファイル: {len(all_instruction_files)}件")
-        for f in all_instruction_files:
-            log.info(f"      - {os.path.basename(f)}")
+        file_names = ", ".join(os.path.basename(f) for f in all_instruction_files)
+        log.info(f"    指示ファイル: {len(all_instruction_files)}件 [{file_names}]")
+        # デバッグルームがALLOWED_ROOMSに含まれている場合の警告
+        if DEBUG_NOTICE_CHATWORK_ROOM_ID and str(DEBUG_NOTICE_CHATWORK_ROOM_ID) in rooms:
+            log.warning(f"    ⚠ ALLOWED_ROOMSにデバッグルーム({DEBUG_NOTICE_CHATWORK_ROOM_ID})を検出 → AI処理対象外です。ALLOWED_ROOMSから取り除くことを推奨します。")
 
-    # --- コマンド一覧 ---
-    log.info("--- コマンド一覧 ---")
-    log.info("  /status        メンバー一覧")
-    log.info("  /status N      メンバー詳細")
-    log.info("  /talk          全モード一覧")
-    log.info("  /talk N        メンバー詳細")
-    log.info("  /talk N M      デフォルト変更")
-    log.info("  /talk N URL M  ルーム別変更")
-    log.info("  /session       AI実行状態")
-    log.info("  /sysinfo       システム情報")
-    log.info("  /bill          API使用量")
-    log.info("  /gws           Google APIテスト")
+    # --- プロンプトチェッカー（指示ファイルにChatWork固有情報がないか検査）---
+    _ng_keywords = ["chatwork", "チャットワーク", "[To:", "[rp ", "account_id", "アカウントID", "ルームID"]
+    _prompt_warnings = []
+    for key, member in MEMBERS.items():
+        _common = sorted(glob.glob(os.path.join(MEMBERS_DIR, "00_*.md")))
+        _member_md = sorted(
+            f for f in glob.glob(os.path.join(member["dir"], "*.md"))
+            if not os.path.basename(f).startswith("room_")
+            and not os.path.basename(f).startswith("chat_history_")
+            and os.path.basename(f) != "CLAUDE.md"
+        )
+        _room_md = sorted(glob.glob(os.path.join(member["dir"], "room_*.md")))
+        for md_path in _common + _member_md + _room_md:
+            try:
+                with open(md_path, "r", encoding="utf-8") as f:
+                    content = f.read().lower()
+                for kw in _ng_keywords:
+                    if kw.lower() in content:
+                        _prompt_warnings.append(f"  [{member['name']}] {os.path.basename(md_path)} に '{kw}' を検出")
+                        break
+            except Exception:
+                pass
+    if _prompt_warnings:
+        log.warning("--- プロンプトチェッカー: 警告 ---")
+        log.warning("指示ファイルにChatWork固有情報が含まれています（Claudeの拒否原因になり得ます）:")
+        for w in _prompt_warnings:
+            log.warning(w)
+    else:
+        log.info("プロンプトチェッカー: OK（ChatWork固有情報なし）")
 
     # --- 残留プロセス cleanup ---
     orphans = kill_orphan_processes()
@@ -256,24 +302,8 @@ def main() -> None:
         member_names = ", ".join(m["name"] for m in MEMBERS.values())
         ai_mode = "API直接" if USE_DIRECT_API else "CLI"
         from poller.config import VERSION
-        startup_msg = (
-            f"[info][title]Poller v{VERSION} 起動[/title]"
-            f"メンバー: {member_names} ({len(MEMBERS)}名)\n"
-            f"AI: {ai_mode} / {CLAUDE_MODEL}\n"
-            f"ポーリング: {'ロング' if SQS_WAIT_TIME_SECONDS > 0 else 'ショート'}\n"
-            f"\nコマンド一覧:\n"
-            f"  /status        メンバー一覧\n"
-            f"  /status N      メンバー詳細\n"
-            f"  /talk          全モード一覧\n"
-            f"  /talk N        メンバー詳細\n"
-            f"  /talk N M      デフォルト変更\n"
-            f"  /talk N URL M  ルーム別変更\n"
-            f"  /session       AI実行状態\n"
-            f"  /sysinfo       システム情報\n"
-            f"  /bill          API使用量\n"
-            f"  /gws           Google APIテスト"
-            f"[/info]"
-        )
+        poll_label = "ロング" if SQS_WAIT_TIME_SECONDS > 0 else "ショート"
+        startup_msg = f"Poller v{VERSION} 起動 / {member_names}({len(MEMBERS)}名) / {ai_mode} {CLAUDE_MODEL} / {poll_label}"
         chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, startup_msg)
 
     # --- ポーリングループ ---

@@ -98,14 +98,26 @@ if !COUNT!==0 (
     goto :END
 )
 
-echo   Total: !COUNT! process(es) found.
+echo   Total: !COUNT! process(es)
 echo.
-echo   [a] Kill all listed processes
-echo   [q] Quit
+echo   [number] Kill selected process
+echo   [a]      Kill ALL
+echo   [c]      Clear .claude_pids only
+echo   [q]      Quit
 echo.
 set /p CHOICE="Select: "
 
-if /i "!CHOICE!"=="q" goto :END
+if /i "!CHOICE!"=="q" goto :EOF
+
+if /i "!CHOICE!"=="c" (
+    if exist ".claude_pids" (
+        del ".claude_pids"
+        echo   .claude_pids cleared.
+    ) else (
+        echo   .claude_pids not found.
+    )
+    goto :END
+)
 
 if /i "!CHOICE!"=="a" (
     echo.
@@ -117,8 +129,24 @@ if /i "!CHOICE!"=="a" (
     if exist ".claude_pids" del ".claude_pids"
     echo.
     echo   Done.
+    goto :END
 )
+
+REM --- number selection ---
+set /a SEL=!CHOICE! 2>nul
+if !SEL! GEQ 1 if !SEL! LEQ !COUNT! (
+    call set "KILL_PID=%%PID_!SEL!%%"
+    taskkill /F /PID !KILL_PID! >nul 2>&1
+    echo   Killed PID=!KILL_PID!
+    echo   Done.
+    goto :END
+)
+
+echo   Invalid selection.
 
 :END
 echo.
 pause
+goto :EOF
+
+:QUIT

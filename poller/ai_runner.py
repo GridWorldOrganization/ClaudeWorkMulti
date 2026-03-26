@@ -150,9 +150,14 @@ def run_cli(prompt: str, cwd: str, member_name: str) -> AIResult:
         log.warning(f"プロンプトが長すぎるためトランケート: {len(prompt)} -> {max_prompt_len}文字")
         prompt = prompt[:max_prompt_len] + "\n\n（以降省略）"
 
+    # cwd にメンバーフォルダを使うと CLAUDE.md や chat_history を CLI が読み込み
+    # タイムアウトの原因になるため、一時ディレクトリで実行する
+    import tempfile
+    cli_cwd = tempfile.mkdtemp(prefix="claude_poll_")
+
     cmd = [CLAUDE_COMMAND, "-p", prompt, "--model", CLAUDE_MODEL]
     log.info(f">>> {ai_mode_label()} 実行開始 [{member_name}] model={CLAUDE_MODEL}"
-             f" cwd={cwd} timeout={CLAUDE_TIMEOUT}秒 prompt_len={len(prompt)}")
+             f" cwd={cli_cwd} timeout={CLAUDE_TIMEOUT}秒 prompt_len={len(prompt)}")
 
     proc = subprocess.Popen(
         cmd,
@@ -161,7 +166,7 @@ def run_cli(prompt: str, cwd: str, member_name: str) -> AIResult:
         text=True,
         encoding="utf-8",
         errors="replace",
-        cwd=cwd,
+        cwd=cli_cwd,
     )
 
     log.info(f"Claude Code プロセス起動: pid={proc.pid}")
@@ -180,7 +185,7 @@ def run_cli(prompt: str, cwd: str, member_name: str) -> AIResult:
 
     except subprocess.TimeoutExpired:
         log.error(f"<<< {ai_mode_label()} タイムアウト [{member_name}] ({CLAUDE_TIMEOUT}秒超過)"
-                  f" cwd={cwd} pid={proc.pid}")
+                  f" cwd={cli_cwd} pid={proc.pid}")
         try:
             proc.kill()
             proc.wait(timeout=10)
@@ -198,6 +203,12 @@ def run_cli(prompt: str, cwd: str, member_name: str) -> AIResult:
             if proc in state.active_processes:
                 state.active_processes.remove(proc)
         _remove_pid(proc.pid)
+        # 一時ディレクトリのクリーンアップ
+        try:
+            import shutil
+            shutil.rmtree(cli_cwd, ignore_errors=True)
+        except Exception:
+            pass
 
 
 # =============================================================================

@@ -51,3 +51,10 @@ reply_time_lock = threading.Lock()
 # =============================================================================
 
 member_locks: dict[str, threading.Lock] = {key: threading.Lock() for key in MEMBERS}
+
+# =============================================================================
+#  /talk 対話セッション
+# =============================================================================
+
+talk_session: dict[str, Any] = {}
+talk_session_lock = threading.Lock()
