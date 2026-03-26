@@ -544,6 +544,11 @@ def process_message(body: dict[str, Any]) -> None:
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
+    # --- デバッグルームはメンバーのAI処理対象外 ---
+    if str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID) and DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        log.info(f"[{member['name']}] デバッグルーム(room={room_id})のメッセージ → AI処理スキップ")
+        return
+
     # --- ルームホワイトリスト判定 ---
     allowed = member.get("allowed_rooms", set())
     if not allowed or str(room_id) not in allowed:

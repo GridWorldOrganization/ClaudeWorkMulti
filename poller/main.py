@@ -261,6 +261,9 @@ def main() -> None:
         all_instruction_files = common_files + member_files + room_specific
         file_names = ", ".join(os.path.basename(f) for f in all_instruction_files)
         log.info(f"    指示ファイル: {len(all_instruction_files)}件 [{file_names}]")
+        # デバッグルームがALLOWED_ROOMSに含まれている場合の警告
+        if DEBUG_NOTICE_CHATWORK_ROOM_ID and str(DEBUG_NOTICE_CHATWORK_ROOM_ID) in rooms:
+            log.warning(f"    ⚠ ALLOWED_ROOMSにデバッグルーム({DEBUG_NOTICE_CHATWORK_ROOM_ID})を検出 → AI処理対象外です。ALLOWED_ROOMSから取り除くことを推奨します。")
 
     # --- プロンプトチェッカー（指示ファイルにChatWork固有情報がないか検査）---
     _ng_keywords = ["chatwork", "チャットワーク", "[To:", "[rp ", "account_id", "アカウントID", "ルームID"]
