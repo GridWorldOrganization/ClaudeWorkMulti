@@ -2,7 +2,8 @@
 Google Workspace API 接続チェッカー
 
 OAuth クライアント認証情報を使って Google Sheets / Drive API に接続し、
-認証・接続が正常に動作するかを確認する。
+テスト用スプレッドシートの作成・書き込み・読み込み・シート追加・削除を実行して
+正常動作を確認する。
 
 config.env の GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET を使用。
 初回実行時にブラウザで OAuth 認証フローを実行し、トークンを保存する。
@@ -10,12 +11,10 @@ config.env の GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET を使用。
 
 import os
 import sys
-import json
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN_PATH = os.path.join(SCRIPT_DIR, "google_token.json")
 
-# Google API スコープ（Drive読み書き + Sheets読み書き）
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
@@ -47,15 +46,12 @@ def get_credentials(env):
 
     creds = None
 
-    # 既存トークンの読み込み
     if os.path.exists(TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
-    # トークンが無効 or 期限切れ → リフレッシュ or 再認証
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            # リフレッシュ成功 → 保存
             with open(TOKEN_PATH, "w") as f:
                 f.write(creds.to_json())
         except Exception as e:
@@ -63,10 +59,8 @@ def get_credentials(env):
             creds = None
 
     if not creds or not creds.valid:
-        # OAuth フローを実行（ブラウザが開く）
         client_id = env.get("GOOGLE_OAUTH_CLIENT_ID", "")
         client_secret = env.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
-
         client_config = {
             "installed": {
                 "client_id": client_id,
@@ -76,21 +70,89 @@ def get_credentials(env):
                 "redirect_uris": ["http://localhost"],
             }
         }
-
         print("")
         print("  *** OAuth authentication required ***")
         print("  A browser window will open. Sign in and grant access.")
         print("")
-
         flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
         creds = flow.run_local_server(port=0)
-
-        # トークンを保存
         with open(TOKEN_PATH, "w") as f:
             f.write(creds.to_json())
         print(f"  Token saved: {TOKEN_PATH}")
 
     return creds
+
+
+def run_spreadsheet_test(creds):
+    """テスト用スプレッドシートを作成→書き込み→読み込み→シート追加→削除して検証する"""
+    from googleapiclient.discovery import build
+
+    sheets = build("sheets", "v4", credentials=creds)
+    drive = build("drive", "v3", credentials=creds)
+    test_title = "_GWS_API_TEST_ (delete me)"
+    sheet_id = None
+
+    try:
+        # 1. 新規スプレッドシート作成
+        print("[4] Create test spreadsheet")
+        spreadsheet = sheets.spreadsheets().create(
+            body={"properties": {"title": test_title}},
+            fields="spreadsheetId",
+        ).execute()
+        sheet_id = spreadsheet["spreadsheetId"]
+        print(f"  Created: {sheet_id}")
+
+        # 2. 書き込み
+        print("[5] Write test data")
+        sheets.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range="Sheet1!A1:B2",
+            valueInputOption="RAW",
+            body={"values": [["test_key", "test_value"], ["hello", "world"]]},
+        ).execute()
+        print("  Write: OK")
+
+        # 3. 読み込み
+        print("[6] Read test data")
+        result = sheets.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range="Sheet1!A1:B2",
+        ).execute()
+        values = result.get("values", [])
+        if values == [["test_key", "test_value"], ["hello", "world"]]:
+            print(f"  Read: OK (verified {len(values)} rows)")
+        else:
+            print(f"  Read: MISMATCH {values}")
+            return False
+
+        # 4. シート追加
+        print("[7] Add new sheet")
+        sheets.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"requests": [{"addSheet": {"properties": {"title": "TestSheet2"}}}]},
+        ).execute()
+        print("  Add sheet: OK")
+
+        # 5. 削除
+        print("[8] Delete test spreadsheet")
+        drive.files().delete(fileId=sheet_id).execute()
+        sheet_id = None
+        print("  Delete: OK")
+
+        return True
+
+    except Exception as e:
+        print(f"  FAILED: {e}")
+        return False
+
+    finally:
+        # テスト失敗時もクリーンアップ
+        if sheet_id:
+            try:
+                drive.files().delete(fileId=sheet_id).execute()
+                print(f"  Cleanup: deleted {sheet_id}")
+            except Exception:
+                print(f"  Cleanup FAILED: manually delete '{test_title}' from Google Drive")
 
 
 def check():
@@ -110,14 +172,10 @@ def check():
         print("    GOOGLE_EMAIL=your-email@example.com")
         print("    GOOGLE_OAUTH_CLIENT_ID=xxxx.apps.googleusercontent.com")
         print("    GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-xxxx")
-        print("")
-        print("  取得方法: Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client IDs")
-        print("  必要なAPI: Google Drive API, Google Sheets API を有効化")
         return
 
     print(f"  Email: {email or '(not set)'}")
     print(f"  Client ID: {client_id[:20]}...")
-    print(f"  Client Secret: {'*' * len(client_secret)}")
     print("")
 
     # --- 2. ライブラリチェック ---
@@ -139,50 +197,24 @@ def check():
     if os.path.exists(TOKEN_PATH):
         print(f"  Token file: {TOKEN_PATH}")
     else:
-        print(f"  Token file: not found (will start OAuth flow)")
+        print("  Token file: not found (will start OAuth flow)")
 
     try:
         creds = get_credentials(env)
-        print(f"  Auth: OK (valid={creds.valid})")
+        print(f"  Auth: OK")
     except Exception as e:
         print(f"  Auth FAILED: {e}")
         return
     print("")
 
-    # --- 4. Google Drive 接続チェック ---
-    print("[4] Google Drive API")
-    try:
-        drive = build("drive", "v3", credentials=creds)
-        results = drive.files().list(
-            pageSize=5,
-            fields="files(id, name, mimeType)",
-            q="mimeType='application/vnd.google-apps.spreadsheet'",
-        ).execute()
-        files = results.get("files", [])
-        print(f"  Connected. Spreadsheets found: {len(files)}")
-        for f in files:
-            print(f"    - {f['name']}")
-    except Exception as e:
-        print(f"  FAILED: {e}")
-        return
+    # --- 4-8. スプレッドシート CRUD テスト ---
+    success = run_spreadsheet_test(creds)
     print("")
 
-    # --- 5. Google Sheets 読み書きチェック ---
-    print("[5] Google Sheets API")
-    if files:
-        test_sheet = files[0]
-        try:
-            sheets = build("sheets", "v4", credentials=creds)
-            meta = sheets.spreadsheets().get(spreadsheetId=test_sheet["id"]).execute()
-            sheet_title = meta["sheets"][0]["properties"]["title"]
-            print(f"  Read OK: '{test_sheet['name']}' sheet='{sheet_title}'")
-        except Exception as e:
-            print(f"  Read FAILED: {e}")
+    if success:
+        print("=== All checks passed (create/write/read/add-sheet/delete OK) ===")
     else:
-        print("  SKIP: No spreadsheets found to test")
-    print("")
-
-    print("=== All checks passed ===")
+        print("=== Some checks FAILED ===")
 
 
 if __name__ == "__main__":

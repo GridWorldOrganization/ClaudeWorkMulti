@@ -826,11 +826,10 @@ def handle_session_command(room_id):
 
 
 def handle_gws_command():
-    """/gws: Google Workspace API（OAuth）の接続状態を調べて報告する"""
+    """/gws: Google Workspace API の接続テスト（スプシ作成→読み書き→削除）"""
     lines = ["[info][title]/gws: Google Workspace API[/title]"]
 
     # config.env チェック
-    email = os.environ.get("GOOGLE_EMAIL", "")
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 
@@ -840,15 +839,12 @@ def handle_gws_command():
         lines.append("[/info]")
         return "\n".join(lines)
 
-    lines.append(f"Email: {email or '(未設定)'}")
-    lines.append(f"Client ID: {client_id[:20]}...")
-
     # ライブラリチェック
     try:
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
     except ImportError:
-        lines.append("\n状態: ライブラリ未インストール")
+        lines.append("状態: ライブラリ未インストール")
         lines.append("pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib")
         lines.append("[/info]")
         return "\n".join(lines)
@@ -856,37 +852,85 @@ def handle_gws_command():
     # トークンチェック
     token_path = os.path.join(SCRIPT_DIR, "google_token.json")
     if not os.path.exists(token_path):
-        lines.append("\n状態: 未認証")
+        lines.append("状態: 未認証")
         lines.append("check_gws.bat を実行して OAuth 認証を完了してください")
         lines.append("[/info]")
         return "\n".join(lines)
 
-    # 認証 + Drive 接続テスト
+    # 認証
     try:
-        creds = Credentials.from_authorized_user_file(token_path, [
-            "https://www.googleapis.com/auth/drive",
-            "https://www.googleapis.com/auth/spreadsheets",
-        ])
+        scopes = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_authorized_user_file(token_path, scopes)
         if creds.expired and creds.refresh_token:
             from google.auth.transport.requests import Request
             creds.refresh(Request())
-
-        drive = build("drive", "v3", credentials=creds)
-        results = drive.files().list(
-            pageSize=5,
-            fields="files(id, name)",
-            q="mimeType='application/vnd.google-apps.spreadsheet'",
-        ).execute()
-        files = results.get("files", [])
-        lines.append(f"\n状態: 利用可能")
-        lines.append(f"■ Drive API: 接続OK")
-        lines.append(f"  スプレッドシート: {len(files)}件")
-        for f in files:
-            lines.append(f"  - {f['name']}")
     except Exception as e:
-        lines.append(f"\n状態: 接続エラー")
-        lines.append(f"  {str(e)[:300]}")
+        lines.append(f"状態: 認証エラー")
+        lines.append(f"  {str(e)[:200]}")
         lines.append("check_gws.bat を再実行して再認証してください")
+        lines.append("[/info]")
+        return "\n".join(lines)
+
+    # スプレッドシート CRUD テスト
+    test_title = "_GWS_API_TEST_ (delete me)"
+    sheet_id = None
+    results = []
+    try:
+        sheets = build("sheets", "v4", credentials=creds)
+        drive = build("drive", "v3", credentials=creds)
+
+        # 作成
+        sp = sheets.spreadsheets().create(
+            body={"properties": {"title": test_title}}, fields="spreadsheetId",
+        ).execute()
+        sheet_id = sp["spreadsheetId"]
+        results.append("作成: OK")
+
+        # 書き込み
+        sheets.spreadsheets().values().update(
+            spreadsheetId=sheet_id, range="Sheet1!A1:B2",
+            valueInputOption="RAW",
+            body={"values": [["key", "value"], ["test", "ok"]]},
+        ).execute()
+        results.append("書き込み: OK")
+
+        # 読み込み
+        data = sheets.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range="Sheet1!A1:B2",
+        ).execute()
+        vals = data.get("values", [])
+        if vals == [["key", "value"], ["test", "ok"]]:
+            results.append("読み込み: OK（検証済）")
+        else:
+            results.append(f"読み込み: MISMATCH")
+
+        # シート追加
+        sheets.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"requests": [{"addSheet": {"properties": {"title": "Sheet2"}}}]},
+        ).execute()
+        results.append("シート追加: OK")
+
+        # 削除
+        drive.files().delete(fileId=sheet_id).execute()
+        sheet_id = None
+        results.append("削除: OK")
+
+        lines.append("状態: 全テスト合格")
+        for r in results:
+            lines.append(f"  {r}")
+
+    except Exception as e:
+        lines.append("状態: テスト失敗")
+        for r in results:
+            lines.append(f"  {r}")
+        lines.append(f"  エラー: {str(e)[:200]}")
+    finally:
+        if sheet_id:
+            try:
+                drive.files().delete(fileId=sheet_id).execute()
+            except Exception:
+                lines.append(f"  注意: テスト用スプシ '{test_title}' の手動削除が必要です")
 
     lines.append("[/info]")
     return "\n".join(lines)
