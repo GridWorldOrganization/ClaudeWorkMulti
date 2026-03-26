@@ -37,7 +37,7 @@ ChatWork → API Gateway → Lambda → SQS → ポーラー(Win PC) → Claude 
 - **Google Workspace連携** — メッセージ内のスプレッドシート/ドキュメント/スライドURLを自動取得してAIに渡す
 - **AI同士の会話** — 人間が起点で開始、設定ターン数で自動停止
 - **フォローアップ** — 「確認します」系の返答を自動検知し情報収集→再返信
-- **コマンド** — `/status` `/session` `/system` `/bill` `/talk` `/gws` でAI未使用で即応答
+- **コマンド** — `/status` `/session` `/sysinfo` `/bill` `/talk` `/gws` でAI未使用で即応答
 - **安全停止** — Ctrl+C / ウィンドウ×ボタン / ログオフ時に子プロセスを自動クリーンアップ
 - **ルームホワイトリスト** — 許可ルーム以外はAI起動せず拒否ログ記録
 
@@ -68,7 +68,7 @@ ClaudeWorkMulti/
 │   ├── chatwork.py            # ChatWork API ヘルパー
 │   ├── ai_runner.py           # AI実行（API直接 / CLI）・PID管理
 │   ├── google_workspace.py    # Google URL検出・内容取得
-│   ├── commands.py            # /status /system /bill /gws /talk ハンドラ
+│   ├── commands.py            # /status /sysinfo /bill /gws /talk ハンドラ
 │   ├── processor.py           # メッセージ処理・バッチ処理
 │   └── main.py                # メインループ・起動チェック
 ├── check_gws.py               # Google Workspace API チェッカー

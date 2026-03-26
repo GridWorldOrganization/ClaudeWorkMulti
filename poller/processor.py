@@ -309,8 +309,8 @@ def process_message(body: dict[str, Any]) -> None:
             log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
             chatwork_post(member["cw_token"], room_id, handle_talk_change(member, room_id, new_mode))
             return
-        if raw_command == "/system":
-            log.info(f"/system コマンド検出: {member['name']} room={room_id}")
+        if raw_command == "/sysinfo":
+            log.info(f"/sysinfo コマンド検出: {member['name']} room={room_id}")
             chatwork_post(member["cw_token"], room_id, handle_system())
             return
         if raw_command == "/bill":
