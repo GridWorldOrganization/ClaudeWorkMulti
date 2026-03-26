@@ -306,7 +306,8 @@ def process_message(body: dict[str, Any]) -> None:
                 log.info(f"/talk 対話セッション応答: input='{session_input}'")
                 chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, reply)
                 return
-        log.info(f"デバッグアカウント宛の非コマンドメッセージを無視: '{raw_command}'")
+        log.info(f"デバッグアカウント宛の非コマンドメッセージ: '{raw_command}' → 定型返信")
+        chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, room_id, "...。")
         return
 
     # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
