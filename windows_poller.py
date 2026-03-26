@@ -9,16 +9,61 @@ import logging
 import os
 import signal
 import sys
+from datetime import datetime
+from logging.handlers import BaseRotatingHandler
 
 # ログ設定（パッケージ読み込み前に設定）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+
+class DailyCsvHandler(BaseRotatingHandler):
+    """日付が変わると自動で新ファイルに切り替わるCSVログハンドラ"""
+
+    def __init__(self, log_dir: str):
+        self.log_dir = log_dir
+        self._current_date = ""
+        path = self._get_path()
+        super().__init__(path, mode="a", encoding="utf-8")
+        self._ensure_header()
+
+    def _get_path(self) -> str:
+        self._current_date = datetime.now().strftime("%Y-%m-%d")
+        return os.path.join(self.log_dir, f"poll_{self._current_date}.csv")
+
+    def _ensure_header(self) -> None:
+        if self.stream.tell() == 0:
+            self.stream.write("timestamp,level,message\n")
+            self.stream.flush()
+
+    def shouldRollover(self, record) -> int:
+        return 1 if datetime.now().strftime("%Y-%m-%d") != self._current_date else 0
+
+    def doRollover(self) -> None:
+        self.stream.close()
+        self.baseFilename = self._get_path()
+        self.stream = self._open()
+        self._ensure_header()
+
+
+class CsvFormatter(logging.Formatter):
+    """CSV形式でログを出力するフォーマッター"""
+    def format(self, record):
+        ts = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        msg = record.getMessage().replace('"', '""')
+        return f'{ts},{record.levelname},"{msg}"'
+
+
+_csv_handler = DailyCsvHandler(LOG_DIR)
+_csv_handler.setFormatter(CsvFormatter())
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(os.path.join(SCRIPT_DIR, "webhook_poller.log"), encoding="utf-8"),
-        logging.StreamHandler(),
-    ],
+    handlers=[_csv_handler, _console_handler],
 )
 
 from poller.main import main, signal_handler

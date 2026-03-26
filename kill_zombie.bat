@@ -107,7 +107,7 @@ echo   [q]      Quit
 echo.
 set /p CHOICE="Select: "
 
-if /i "!CHOICE!"=="q" goto :QUIT
+if /i "!CHOICE!"=="q" goto :EOF
 
 if /i "!CHOICE!"=="c" (
     if exist ".claude_pids" (
