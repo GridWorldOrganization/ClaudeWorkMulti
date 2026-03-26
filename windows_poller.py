@@ -915,6 +915,32 @@ def handle_system_command():
         lines.append(f"  ANTHROPIC_API_KEY: {'設定済' if ANTHROPIC_API_KEY else '未設定'}")
     else:
         lines.append(f"  CLAUDE_COMMAND: {CLAUDE_COMMAND}")
+        # Native / npm 判定
+        try:
+            result = subprocess.run(
+                [CLAUDE_COMMAND, "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            version_str = result.stdout.strip() if result.returncode == 0 else "取得失敗"
+            # claude.exe → Native, node経由 → npm
+            if os.name == "nt":
+                where_result = subprocess.run(
+                    ["where", CLAUDE_COMMAND], capture_output=True, text=True, timeout=5,
+                )
+                cmd_path = where_result.stdout.strip().split("\n")[0] if where_result.returncode == 0 else ""
+                if cmd_path.endswith(".exe"):
+                    cli_type = "Native"
+                elif cmd_path.endswith(".cmd"):
+                    cli_type = "npm"
+                else:
+                    cli_type = "不明"
+                lines.append(f"  CLI種別: {cli_type} ({version_str})")
+                if cmd_path:
+                    lines.append(f"  CLIパス: {cmd_path}")
+            else:
+                lines.append(f"  CLIバージョン: {version_str}")
+        except Exception:
+            lines.append(f"  CLI種別: 検出失敗")
 
     # SQS / ポーリング
     lines.append(f"\n■ SQS")
