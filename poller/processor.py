@@ -66,6 +66,51 @@ log = logging.getLogger(__name__)
 #  ユーティリティ
 # =============================================================================
 
+# =============================================================================
+#  名前マスキング（ChatWork 固有情報の匿名化）
+# =============================================================================
+
+_PSEUDONYMS = [
+    "AIアシスタントA子", "AIアシスタントB子", "AIアシスタントC子", "AIアシスタントD子", "AIアシスタントE子",
+    "AIアシスタントF子", "AIアシスタントG子", "AIアシスタントH子", "AIアシスタントI子", "AIアシスタントJ子",
+]
+
+
+def _build_name_mapping(self_member: dict[str, Any]) -> dict[str, str]:
+    """登録メンバー名 → 仮名の対応表を構築する。自分自身は除外"""
+    mapping: dict[str, str] = {}
+    pseudo_idx = 0
+    self_aid = str(self_member["account_id"])
+    for member in MEMBERS.values():
+        if str(member["account_id"]) == self_aid:
+            continue
+        if pseudo_idx >= len(_PSEUDONYMS):
+            break
+        pseudo = _PSEUDONYMS[pseudo_idx]
+        name = member["name"]
+        # フルネーム（スペースあり/なし両方）
+        mapping[name] = pseudo
+        if " " in name or "　" in name:
+            no_space = name.replace(" ", "").replace("　", "")
+            mapping[no_space] = pseudo
+            # 姓・名それぞれ（2文字以上のみ）
+            parts = re.split(r'[\s　]+', name)
+            for part in parts:
+                if len(part) >= 2 and part not in mapping:
+                    mapping[part] = pseudo
+        pseudo_idx += 1
+    return mapping
+
+
+def _mask_names(text: str, mapping: dict[str, str]) -> str:
+    """テキスト内の登録メンバー名を仮名に置換する（長い名前から優先）"""
+    if not text or not mapping:
+        return text
+    for real_name in sorted(mapping.keys(), key=len, reverse=True):
+        text = text.replace(real_name, mapping[real_name])
+    return text
+
+
 def _is_casual_chat(message: str) -> bool:
     """メッセージが雑談かどうかを判定する（モード0用）"""
     text = re.sub(r'\[To:\d+\][^\n]*\n?', '', message).strip()
@@ -226,14 +271,19 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
     room_context = gather_room_context(member["cw_token"], room_id)
     log.info("ルーム情報収集完了")
 
+    # フォローアップでも名前マスキングを適用
+    fu_name_map = _build_name_mapping(member)
+    masked_message = _mask_names(message, fu_name_map)
+    masked_context = _mask_names(room_context, fu_name_map)
+
     followup_prompt = (
         f"あなたは「{member['name']}」です。\n"
         f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"タグやメタ情報は一切含めないでください。\n\n"
         f"=== 返信の指示 ===\n{instructions}\n\n"
-        f"=== 元の受信メッセージ ===\n{message}\n\n"
-        f"=== 収集した情報 ===\n{room_context}\n\n"
+        f"=== 元の受信メッセージ ===\n{masked_message}\n\n"
+        f"=== 収集した情報 ===\n{masked_context}\n\n"
         f"上記の情報をもとに、先ほどの「確認します」に対するフォローアップ返信を作成してください。"
     )
 
@@ -242,6 +292,12 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
         followup_reply = result.output.strip() if result.output else ""
         if result.returncode == 0 and followup_reply:
             log.info(f"フォローアップ返信 [{member['name']}]: {followup_reply[:500]}")
+            # 仮名 → 実名に復元
+            fu_reverse = {v: k for k, v in fu_name_map.items() if " " not in k and "　" not in k}
+            for real, pseudo in fu_name_map.items():
+                if (" " in real or "　" in real) and pseudo not in fu_reverse:
+                    fu_reverse[pseudo] = real
+            followup_reply = _mask_names(followup_reply, fu_reverse)
             rp_header = build_rp_header(member["cw_token"], room_id, sender, message_id)
             if rp_header:
                 followup_reply = f"{rp_header}\n{followup_reply}"
@@ -561,23 +617,31 @@ def process_message(body: dict[str, Any]) -> None:
     # メッセージ本文から [To:] [rp] タグを除去してClaudeに渡す
     clean_message = re.sub(r'\[To:\d+\][^\n]*\n?', '', message).strip()
     clean_message = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', clean_message).strip()
+
+    # 登録メンバー名を仮名に置換（自分自身は除外）
+    name_map = _build_name_mapping(member)
+    clean_message = _mask_names(clean_message, name_map)
+    masked_sender = name_map.get(sender_name, sender_name)
+    masked_room_members = _mask_names(room_members_info, name_map)
+
     prompt = (
         f"あなたは「{member['name']}」です。\n"
         f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"タグやメタ情報は一切含めないでください。\n"
-        f"送信者は「{sender_name}」です。\n\n"
-        f"{room_members_info}"
+        f"送信者は「{masked_sender}」です。\n\n"
+        f"{masked_room_members}"
         f"=== 返信の指示 ===\n{instructions}\n\n"
     )
     if prior_context:
         prior_clean = re.sub(r'\[To:\d+\][^\n]*\n?', '', prior_context).strip()
         prior_clean = re.sub(r'\[rp aid=\d+ to=\d+-\d+\][^\n]*\n?', '', prior_clean).strip()
+        prior_clean = _mask_names(prior_clean, name_map)
         prompt += f"=== これより前に届いたメッセージ（まとめて把握すること） ===\n{prior_clean}\n\n"
     prompt += (
         f"=== 受信メッセージ（これに返信すること） ===\n"
-        f"送信者: {sender_name}\n\n"
+        f"送信者: {masked_sender}\n\n"
         f"{clean_message}"
     )
     if google_content:
@@ -626,6 +690,14 @@ def process_message(body: dict[str, Any]) -> None:
                     f"ルーム: {_room_label}\n送信者: {sender_name}\n本文: {message[:100]}\n拒否応答: {raw_reply[:300]}",
                 )
                 return
+
+            # 仮名 → 実名に復元（Claude が「A子さん」と返した場合 →「横田さん」に戻す）
+            reverse_map = {v: k for k, v in name_map.items() if " " not in k and "　" not in k}
+            # フルネーム（スペースあり）を優先的に復元
+            for real, pseudo in name_map.items():
+                if (" " in real or "　" in real) and pseudo not in reverse_map:
+                    reverse_map[pseudo] = real
+            reply = _mask_names(reply, reverse_map)
 
             reply = _apply_reply_tag(reply, member["cw_token"], room_id, sender, message_id)
             chatwork_post(member["cw_token"], room_id, reply)
