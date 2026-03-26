@@ -4,16 +4,31 @@ cd /d "%~dp0"
 setlocal enabledelayedexpansion
 set AWS_DEFAULT_REGION=ap-northeast-1
 
-REM 多重起動チェック（windows_poller.py が既に実行中なら起動禁止）
+REM 多重起動チェック（windows_poller.py が既に実行中なら停止してから起動）
 tasklist /FI "IMAGENAME eq python.exe" /FO CSV /NH 2>nul | findstr /i "python" >nul
 if not errorlevel 1 (
     wmic process where "name='python.exe'" get CommandLine /FORMAT:LIST 2>nul | findstr /i "windows_poller" >nul
     if not errorlevel 1 (
-        echo [ERROR] windows_poller.py is already running.
-        echo         Stop the existing instance first.
+        echo [WARN] windows_poller.py is already running.
         echo.
-        pause
-        exit /b 1
+        echo   This may be a zombie process from a closed window.
+        echo   Kill it and restart? (Y/n)
+        echo.
+        set /p RESTART_CHOICE="Select: "
+        if /i "!RESTART_CHOICE!"=="n" exit /b 1
+        echo.
+        echo Killing existing poller...
+        for /f "tokens=2 delims=," %%P in ('wmic process where "name='python.exe'" get ProcessId /FORMAT:CSV 2^>nul ^| findstr /r "[0-9]"') do (
+            set "TPID=%%P"
+            wmic process where "ProcessId=!TPID!" get CommandLine /FORMAT:LIST 2>nul | findstr /i "windows_poller" >nul
+            if not errorlevel 1 (
+                taskkill /F /PID !TPID! >nul 2>&1
+                echo   Killed PID=!TPID!
+            )
+        )
+        if exist ".claude_pids" del ".claude_pids"
+        echo   Done.
+        echo.
     )
 )
 
