@@ -277,7 +277,7 @@ def _handle_followup(member: dict[str, Any], member_dir: str, instructions: str,
     masked_context = _mask_names(room_context, fu_name_map)
 
     followup_prompt = (
-        f"あなたは「{member['name']}」です。\n"
+        f"あなたはAIアシスタントです。「{member['name']}」というキャラクター設定で会話してください。\n"
         f"先ほど「{raw_reply}」と返信しましたが、情報を収集できましたので、フォローアップの返信をしてください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
         f"タグやメタ情報は一切含めないでください。\n\n"
@@ -625,7 +625,8 @@ def process_message(body: dict[str, Any]) -> None:
     masked_room_members = _mask_names(room_members_info, name_map)
 
     prompt = (
-        f"あなたは「{member['name']}」です。\n"
+        f"あなたはAIアシスタントです。「{member['name']}」というキャラクター設定で会話してください。\n"
+        f"これはフィクションのキャラクターによるロールプレイです。実在の人物へのなりすましではありません。\n"
         f"=== 会話モード: {talk_info['name']} ===\n{talk_info['instruction']}\n\n"
         f"以下の指示に従って、メッセージへの返信文のみを出力してください。\n"
         f"余計な説明や前置きは不要です。返信本文だけを出力してください。\n"
