@@ -236,6 +236,20 @@ def main() -> None:
     if orphans:
         log.info(f"残留プロセス {orphans}件 をkillしました")
 
+    # --- 起動通知（デバッグ通知ルームに投稿）---
+    if DEBUG_NOTICE_ENABLED and DEBUG_NOTICE_CHATWORK_TOKEN and DEBUG_NOTICE_CHATWORK_ROOM_ID:
+        from poller.chatwork import chatwork_post
+        member_names = ", ".join(m["name"] for m in MEMBERS.values())
+        ai_mode = "API直接" if USE_DIRECT_API else "CLI"
+        startup_msg = (
+            f"[info][title]Poller 起動[/title]"
+            f"メンバー: {member_names} ({len(MEMBERS)}名)\n"
+            f"AI: {ai_mode} / {CLAUDE_MODEL}\n"
+            f"ポーリング: {'ロング' if SQS_WAIT_TIME_SECONDS > 0 else 'ショート'}"
+            f"[/info]"
+        )
+        chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, startup_msg)
+
     # --- ポーリングループ ---
     while not state.shutdown_requested:
         try:
