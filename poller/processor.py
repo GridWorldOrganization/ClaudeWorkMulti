@@ -272,7 +272,7 @@ def process_message(body: dict[str, Any]) -> None:
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
     _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
     is_command = (raw_command in _COMMAND_KEYWORDS
-                  or re.match(r'^/talk\s+\d$', raw_command)
+                  or re.match(r'^/talk\s+\d', raw_command)
                   or re.match(r'^/status\s+\d+$', raw_command))
 
     # デバッグ専用アカウント宛のコマンドを先に処理（MEMBERS に含まれなくても動作）
@@ -317,7 +317,98 @@ def process_message(body: dict[str, Any]) -> None:
         if raw_command == "/gws":
             chatwork_post(debug_token, room_id, handle_gws())
             return
-        # /talk はメンバー固有なのでデバッグアカウントでは非対応
+        # /talk: メンバー番号指定で会話モード表示・変更
+        if raw_command == "/talk":
+            # 全メンバーの現在のデフォルトモードを表示
+            from poller.config import load_talk_modes
+            lines = ["[info][title]/talk: 全メンバーモード一覧[/title]"]
+            for idx, (key, m) in enumerate(MEMBERS.items(), 1):
+                default_mode, _ = load_talk_modes(m["dir"])
+                mode_name = TALK_MODES.get(default_mode, {}).get("name", "不明")
+                lines.append(f"  {idx}. {m['name']} → {default_mode}({mode_name})")
+            lines.append(f"\n変更: /talk [メンバー番号] [モード番号]")
+            lines.append(f"詳細: /talk [メンバー番号]")
+            lines.append("[/info]")
+            chatwork_post(debug_token, room_id, "\n".join(lines))
+            return
+        talk_room_match = re.match(r'^/talk\s+(\d+)\s+(\d+)\s+(\d)$', raw_command)
+        if talk_room_match:
+            # /talk N ROOMID M: メンバーNのルームROOMID別モードをMに変更
+            mem_num = int(talk_room_match.group(1))
+            target_room = talk_room_match.group(2)
+            new_mode = int(talk_room_match.group(3))
+            member_list = list(MEMBERS.items())
+            if 1 <= mem_num <= len(member_list):
+                target_key, target_member = member_list[mem_num - 1]
+                if new_mode not in TALK_MODES:
+                    chatwork_post(debug_token, room_id, f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。")
+                else:
+                    result_msg = handle_talk_change(target_member, target_room, new_mode)
+                    chatwork_post(debug_token, room_id, result_msg)
+            else:
+                chatwork_post(debug_token, room_id, f"無効な番号です。1〜{len(member_list)} を指定してください。")
+            return
+        talk_match = re.match(r'^/talk\s+(\d+)\s+(\d)$', raw_command)
+        if talk_match:
+            # /talk N M: メンバーNのデフォルトモードをMに変更
+            mem_num = int(talk_match.group(1))
+            new_mode = int(talk_match.group(2))
+            member_list = list(MEMBERS.items())
+            if 1 <= mem_num <= len(member_list):
+                target_key, target_member = member_list[mem_num - 1]
+                # デフォルトモードを変更（mode.env のルーム指定なしの TALK_MODE= を更新）
+                mode_env_path = os.path.join(target_member["dir"], "mode.env")
+                if new_mode not in TALK_MODES:
+                    chatwork_post(debug_token, room_id, f"無効なモードです。0〜{max(TALK_MODES.keys())} を指定してください。")
+                else:
+                    file_lines: list[str] = []
+                    default_updated = False
+                    if os.path.exists(mode_env_path):
+                        with open(mode_env_path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                stripped = line.strip()
+                                if stripped.startswith("TALK_MODE=") and ":" not in stripped[len("TALK_MODE="):]:
+                                    file_lines.append(f"TALK_MODE={new_mode}\n")
+                                    default_updated = True
+                                else:
+                                    file_lines.append(line)
+                    if not default_updated:
+                        file_lines.insert(0, f"TALK_MODE={new_mode}\n")
+                    with open(mode_env_path, "w", encoding="utf-8") as f:
+                        f.writelines(file_lines)
+                    mode_name = TALK_MODES[new_mode]["name"]
+                    chatwork_post(debug_token, room_id,
+                                  f"[info]{target_member['name']} のデフォルトモードを {new_mode}（{mode_name}）に変更しました。[/info]")
+            else:
+                chatwork_post(debug_token, room_id, f"無効な番号です。1〜{len(member_list)} を指定してください。")
+            return
+        talk_detail = re.match(r'^/talk\s+(\d+)$', raw_command)
+        if talk_detail:
+            # /talk N: メンバーNのモード詳細を表示
+            mem_num = int(talk_detail.group(1))
+            member_list = list(MEMBERS.items())
+            if 1 <= mem_num <= len(member_list):
+                target_key, target_member = member_list[mem_num - 1]
+                from poller.config import load_talk_modes
+                default_mode, room_modes = load_talk_modes(target_member["dir"])
+                lines = [f"[info][title]/talk: {target_member['name']}[/title]"]
+                lines.append(f"デフォルトモード: {default_mode}({TALK_MODES.get(default_mode, {}).get('name', '不明')})")
+                if room_modes:
+                    lines.append(f"\nルーム別設定:")
+                    for rid, mode in sorted(room_modes.items()):
+                        lines.append(f"  {rid}: {mode}({TALK_MODES.get(mode, {}).get('name', '不明')})")
+                else:
+                    lines.append(f"ルーム別設定: なし")
+                lines.append(f"\n設定可能なモード:")
+                for mode_id, mode_info in sorted(TALK_MODES.items()):
+                    marker = " ← 現在" if mode_id == default_mode else ""
+                    lines.append(f"  {mode_id}: {mode_info['name']}{marker}")
+                lines.append(f"\n変更: /talk {mem_num} [モード番号]")
+                lines.append("[/info]")
+                chatwork_post(debug_token, room_id, "\n".join(lines))
+            else:
+                chatwork_post(debug_token, room_id, f"無効な番号です。1〜{len(member_list)} を指定してください。")
+            return
         log.info(f"デバッグアカウントでは非対応のコマンド: {raw_command}")
         return
 
