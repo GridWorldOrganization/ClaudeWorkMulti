@@ -1241,9 +1241,8 @@ def main():
         md_files = glob.glob(os.path.join(member["dir"], "*.md"))
         rooms = member.get("allowed_rooms", set())
         rooms_str = ", ".join(sorted(rooms)) if rooms else "なし（全送信不可）"
-        log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key})")
-        log.info(f"    account_id: {member['account_id']}")
-        log.info(f"    cw_token: {'設定済' if member['cw_token'] else '未設定'}")
+        token_status = '設定済' if member['cw_token'] else '未設定'
+        log.info(f"  [{idx}/{len(MEMBERS)}] {member['name']} ({key}) account_id={member['account_id']} cw_token={token_status}")
         log.info(f"    許可ルーム: [{rooms_str}]")
         log.info(f"    指示ファイル: {len(md_files)}件")
         for f in sorted(md_files):
