@@ -113,7 +113,7 @@ echo   pip:         OK
 echo   Claude Code: OK
 echo   AWS CLI:     OK
 echo   AWS Profile: OK
-echo   Google API:  see [6/6] above
+echo   Google API:  OK (check_gws.bat)
 echo.
 echo 起動方法: start_poller.bat をダブルクリック
 
