@@ -91,7 +91,7 @@ ClaudeWorkMulti/
 | `SQS_WAIT_TIME_SECONDS` | — | `1` | SQSポーリング方式（0=ショート, 1-20=ロング） |
 | `POLL_INTERVAL` | — | `0.5` | ポーリング間隔・秒（ショートポーリング時のみ有効） |
 | `CLAUDE_TIMEOUT` | — | `60` | AI応答タイムアウト・秒 |
-| `FOLLOWUP_WAIT_SECONDS` | — | `30` | フォローアップ待機時間・秒 |
+| `FOLLOWUP_WAIT_SECONDS` | — | `30` | AIが「確認します」等と返信した場合、この秒数待ってからルーム情報を収集し再返信する |
 | `MAX_AI_CONVERSATION_TURNS` | — | `10` | AI同士の会話の最大ターン数 |
 | `REPLY_COOLDOWN_SECONDS` | — | `15` | 連投防止クールダウン・秒 |
 | `MAINTENANCE_ROOM_ID` | — | — | メンテナンスルームID |
