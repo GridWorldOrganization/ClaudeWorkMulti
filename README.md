@@ -74,7 +74,7 @@ ClaudeWorkMulti/
 ├── check_gws.py               # Google Workspace API チェッカー
 ├── start_poller.bat           # 起動（自動ゾンビkill + 再起動）
 ├── setup_windows.bat          # 初回セットアップ
-├── check_claude_task.bat      # Claudeプロセスチェッカー（Native/npm判定）
+├── check_task.bat      # プロセスチェッカー（ポーラー + Claude Native/npm）
 ├── check_gws.bat              # Google Workspace API 接続テスト
 ├── kill_zombie.bat            # ゾンビプロセス検出・削除（--all で全Claude対象）
 ├── config.env.example         # グローバル設定テンプレート

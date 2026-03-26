@@ -4,37 +4,66 @@ cd /d "%~dp0"
 setlocal enabledelayedexpansion
 
 echo ==========================================
-echo   Claude Process Checker
+echo   Process Checker
 echo ==========================================
-echo.
-echo [Running Claude Processes]
 echo.
 
 set COUNT=0
 
-REM --- Native claude.exe ---
+REM --- Poller (python + windows_poller.py) ---
+echo [1] Poller processes
+echo.
+for /f "tokens=2 delims=," %%P in ('wmic process where "name='python.exe'" get ProcessId /FORMAT:CSV 2^>nul ^| findstr /r "[0-9]"') do (
+    set "PID=%%P"
+    wmic process where "ProcessId=!PID!" get CommandLine /FORMAT:LIST 2>nul | findstr /i "windows_poller" >nul
+    if not errorlevel 1 (
+        set /a COUNT+=1
+        set "PID_!COUNT!=!PID!"
+        set "NAME_!COUNT!=python.exe"
+        REM Check which folder
+        set "PTAG=[poller]"
+        wmic process where "ProcessId=!PID!" get CommandLine /FORMAT:LIST 2>nul | findstr /i "ClaudeWorkMulti" >nul
+        if not errorlevel 1 (
+            set "PTAG=[poller: ClaudeWorkMulti]"
+        ) else (
+            set "PTAG=[poller: OTHER]"
+        )
+        echo   !COUNT!. python.exe  PID=!PID!  !PTAG!
+    )
+)
+
+REM --- Claude Native (claude.exe) ---
+echo.
+echo [2] Claude processes - Native
+echo.
+set CLAUDE_NATIVE=0
 for /f "tokens=1,2 delims=," %%A in ('tasklist /FO CSV /NH 2^>nul ^| findstr /i "claude.exe"') do (
     set /a COUNT+=1
-    set "PROC_NAME=%%~A"
-    set "PROC_PID=%%~B"
-    set "PID_!COUNT!=!PROC_PID!"
-    set "NAME_!COUNT!=!PROC_NAME!"
+    set /a CLAUDE_NATIVE+=1
+    set "PID_!COUNT!=%%~B"
+    set "NAME_!COUNT!=%%~A"
 
     set "TAG=[Native]"
     if exist ".claude_pids" (
         for /f "usebackq" %%P in (".claude_pids") do (
-            if "%%P"=="!PROC_PID!" set "TAG=[Native] *POLLER*"
+            if "%%P"=="%%~B" set "TAG=[Native] *POLLER*"
         )
     )
-    echo   !COUNT!. !PROC_NAME!  PID=!PROC_PID!  !TAG!
+    echo   !COUNT!. %%~A  PID=%%~B  !TAG!
 )
+if !CLAUDE_NATIVE!==0 echo   None.
 
-REM --- npm node.exe (claude command line) ---
+REM --- Claude npm (node.exe) ---
+echo.
+echo [3] Claude processes - npm
+echo.
+set CLAUDE_NPM=0
 for /f "tokens=2 delims=," %%P in ('wmic process where "name='node.exe'" get ProcessId /FORMAT:CSV 2^>nul ^| findstr /r "[0-9]"') do (
     set "NODE_PID=%%P"
-    REM Get command line for this PID
-    for /f "tokens=*" %%C in ('wmic process where "ProcessId=!NODE_PID!" get CommandLine /FORMAT:LIST 2^>nul ^| findstr /i "claude"') do (
+    wmic process where "ProcessId=!NODE_PID!" get CommandLine /FORMAT:LIST 2>nul | findstr /i "claude" >nul
+    if not errorlevel 1 (
         set /a COUNT+=1
+        set /a CLAUDE_NPM+=1
         set "PID_!COUNT!=!NODE_PID!"
         set "NAME_!COUNT!=node.exe"
 
@@ -47,10 +76,7 @@ for /f "tokens=2 delims=," %%P in ('wmic process where "name='node.exe'" get Pro
         echo   !COUNT!. node.exe  PID=!NODE_PID!  !TAG!
     )
 )
-
-if !COUNT!==0 (
-    echo   No claude process found.
-)
+if !CLAUDE_NPM!==0 echo   None.
 
 echo.
 echo ------------------------------------------
@@ -68,10 +94,15 @@ if exist ".claude_pids" (
 echo ------------------------------------------
 echo.
 
-if !COUNT!==0 goto :END
+if !COUNT!==0 (
+    echo   No processes found.
+    goto :END
+)
 
+echo   Total: !COUNT! process(es)
+echo.
 echo   [number] Kill selected process
-echo   [a]      Kill ALL processes
+echo   [a]      Kill ALL
 echo   [c]      Clear .claude_pids only
 echo   [q]      Quit
 echo.

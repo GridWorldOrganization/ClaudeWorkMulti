@@ -32,7 +32,7 @@
 |--------|------|
 | `start_poller.bat` | ポーラー起動。既存プロセスがあれば自動 kill して再起動 |
 | `setup_windows.bat` | 初回セットアップ（依存パッケージ・AWS・Google API） |
-| `check_claude_task.bat` | 実行中の Claude プロセス一覧表示（Native/npm 判定） |
+| `check_task.bat` | プロセスチェッカー（ポーラー + Claude Native/npm） |
 | `check_gws.bat` | Google Workspace API 接続テスト（OAuth認証 + CRUD 検証） |
 | `kill_zombie.bat` | ゾンビプロセス検出・削除（ポーラーが起動したプロセスのみ） |
 | `kill_zombie.bat --all` | 上記 + 全 Claude プロセス（Native/npm）も表示・削除対象に含める |
