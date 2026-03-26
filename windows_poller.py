@@ -56,6 +56,19 @@ CHATWORK_API_BASE = "https://api.chatwork.com/v2"
 CHATWORK_API_TOKEN_ERROR_REPORTER = os.environ.get("CHATWORK_API_TOKEN_ERROR_REPORTER", "")
 CHATWORK_ERROR_ROOM_ID = int(os.environ.get("CHATWORK_ERROR_ROOM_ID", "0"))
 
+# --- 雑談フィルタキーワード（モード0: ログモード用）---
+CASUAL_CHAT_KEYWORDS = [
+    "おはよう", "おはよ", "おは", "こんにちは", "こんばんは",
+    "お疲れ", "おつかれ", "おつ", "お先に", "お先",
+    "ありがとう", "ありがと", "あざす", "あざっす",
+    "了解", "りょうかい", "りょ", "おけ", "おk", "OK",
+    "お願いします", "よろしく", "よろ",
+    "すみません", "すいません", "ごめん",
+    "いいね", "ナイス", "いい感じ",
+    "おやすみ", "お休み", "ばいばい", "またね", "では",
+    "笑", "www", "ww", "草",
+]
+
 # --- フォローアップ検出キーワード ---
 FOLLOWUP_KEYWORDS = [
     "確認します", "確認してみます", "確認しますね",
@@ -387,6 +400,20 @@ def check_ai_conversation_allowed(room_id, sender):
 # =============================================================================
 #  指示ファイル / 会話記録
 # =============================================================================
+
+def is_casual_chat(message):
+    """メッセージが雑談かどうかを判定する（モード0用）。[To:]タグを除去した本文で判定"""
+    text = re.sub(r'\[To:\d+\][^\n]*\n?', '', message).strip()
+    if not text:
+        return True
+    # 短文（15文字以下）かつキーワードに一致したら雑談
+    if len(text) <= 15:
+        text_lower = text.lower()
+        for kw in CASUAL_CHAT_KEYWORDS:
+            if kw.lower() in text_lower:
+                return True
+    return False
+
 
 def needs_followup(reply_text):
     """返信テキストにフォローアップが必要なキーワードが含まれているか"""
@@ -988,6 +1015,12 @@ def process_message(body: dict):
     talk_mode = _get_talk_mode(member_dir, str(room_id))
     talk_info = TALK_MODES.get(talk_mode, TALK_MODES[1])
     log.info(f"会話モード: {talk_mode}({talk_info['name']})")
+
+    # --- モード 0（ログ）: 雑談フィルタ ---
+    if talk_mode == 0 and is_casual_chat(message):
+        log.info(f"[{member['name']}] ログモード: 雑談メッセージをスキップ")
+        return
+
     instructions = load_instructions(member_dir, room_id)
 
     # モード 3 (ペルソナ+): ルームメンバー情報を取得
