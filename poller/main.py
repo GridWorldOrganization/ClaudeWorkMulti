@@ -232,6 +232,17 @@ def main() -> None:
         for f in all_instruction_files:
             log.info(f"      - {os.path.basename(f)}")
 
+    # --- コマンド一覧 ---
+    log.info("--- コマンド一覧 ---")
+    log.info("  /status      メンバー一覧")
+    log.info("  /status N    メンバー詳細")
+    log.info("  /session     AI実行状態")
+    log.info("  /sysinfo     システム情報")
+    log.info("  /bill        API使用量・料金")
+    log.info("  /talk        会話モード表示")
+    log.info("  /talk N      会話モード変更")
+    log.info("  /gws         Google API テスト")
+
     # --- 残留プロセス cleanup ---
     orphans = kill_orphan_processes()
     if orphans:
@@ -242,11 +253,21 @@ def main() -> None:
         from poller.chatwork import chatwork_post
         member_names = ", ".join(m["name"] for m in MEMBERS.values())
         ai_mode = "API直接" if USE_DIRECT_API else "CLI"
+        from poller.config import VERSION
         startup_msg = (
-            f"[info][title]Poller 起動[/title]"
+            f"[info][title]Poller v{VERSION} 起動[/title]"
             f"メンバー: {member_names} ({len(MEMBERS)}名)\n"
             f"AI: {ai_mode} / {CLAUDE_MODEL}\n"
-            f"ポーリング: {'ロング' if SQS_WAIT_TIME_SECONDS > 0 else 'ショート'}"
+            f"ポーリング: {'ロング' if SQS_WAIT_TIME_SECONDS > 0 else 'ショート'}\n"
+            f"\nコマンド一覧:\n"
+            f"  /status      メンバー一覧\n"
+            f"  /status N    メンバー詳細\n"
+            f"  /session     AI実行状態\n"
+            f"  /sysinfo     システム情報\n"
+            f"  /bill        API使用量・料金\n"
+            f"  /talk        会話モード表示\n"
+            f"  /talk N      会話モード変更\n"
+            f"  /gws         Google API テスト"
             f"[/info]"
         )
         chatwork_post(DEBUG_NOTICE_CHATWORK_TOKEN, DEBUG_NOTICE_CHATWORK_ROOM_ID, startup_msg)
