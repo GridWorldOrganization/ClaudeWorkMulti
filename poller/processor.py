@@ -16,6 +16,7 @@ from typing import Any
 import requests
 
 from poller.config import (
+    AI_REFUSAL_KEYWORDS,
     ALL_MEMBER_IDS,
     CASUAL_CHAT_KEYWORDS,
     CASUAL_CHAT_MAX_LENGTH,
@@ -75,6 +76,30 @@ def _is_casual_chat(message: str) -> bool:
         for kw in CASUAL_CHAT_KEYWORDS:
             if kw.lower() in text_lower:
                 return True
+    return False
+
+
+def _is_ai_refusal(reply_text: str) -> bool:
+    """AIの返信がセーフティフィルタによる拒否かどうかを判定する"""
+    # キーワード部分一致
+    for kw in AI_REFUSAL_KEYWORDS:
+        if kw in reply_text:
+            return True
+    # 構造パターン: 拒否 + 理由列挙
+    refusal_words = ["できません", "お断り", "対応できません", "サポートできません", "応じられません"]
+    reason_words = ["理由", "以下の点", "以下の理由", "問題があります"]
+    has_refusal = any(w in reply_text for w in refusal_words)
+    has_reason = any(w in reply_text for w in reason_words)
+    if has_refusal and has_reason:
+        return True
+    # 構造パターン: 拒否 + 代替提案
+    alternative_words = ["代わりに", "お手伝いできます", "サポートできます", "以下のような"]
+    if has_refusal and any(w in reply_text for w in alternative_words):
+        return True
+    # 構造パターン: なりすまし/不適切 関連
+    impersonation_words = ["なりすまし", "不適切", "倫理的", "安全上", "ポリシー"]
+    if any(w in reply_text for w in impersonation_words) and has_refusal:
+        return True
     return False
 
 
@@ -592,6 +617,15 @@ def process_message(body: dict[str, Any]) -> None:
         if result.returncode == 0 and reply:
             log.info(f"返信内容 [{member['name']}]: {reply[:500]}")
             raw_reply = reply
+
+            # AI拒否検出 → 返信せずデバッグルームに通知
+            if _is_ai_refusal(raw_reply):
+                log.warning(f"[{member['name']}] AI拒否応答を検出 → 返信をブロック")
+                notify_error(
+                    f"AI拒否検出 [{member['name']}]",
+                    f"ルーム: {_room_label}\n送信者: {sender_name}\n本文: {message[:100]}\n拒否応答: {raw_reply[:300]}",
+                )
+                return
 
             reply = _apply_reply_tag(reply, member["cw_token"], room_id, sender, message_id)
             chatwork_post(member["cw_token"], room_id, reply)
