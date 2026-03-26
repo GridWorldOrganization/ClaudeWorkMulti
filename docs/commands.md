@@ -23,7 +23,7 @@
 | `/talk N M` | メンバー N のデフォルトモードを M に変更 |
 | `/talk N URL M` | メンバー N の特定ルームのモードを M に変更 |
 
-URL は `https://www.chatwork.com/#!rid426936385` 形式またはルーム ID 直接指定。
+URL は `https://www.chatwork.com/#!ridXXXXXXXXX` 形式またはルーム ID 直接指定。
 
 ### その他
 

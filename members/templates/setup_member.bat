@@ -7,7 +7,7 @@ echo   メンバーフォルダ セットアップ
 echo ===================================
 echo.
 
-set /p MEMBER_DIR="メンバーフォルダ名を入力 (例: 01_yokota, 02_fujino): "
+set /p MEMBER_DIR="Enter member folder name (e.g. 01_yamada, 02_tanaka): "
 
 if "%MEMBER_DIR%"=="" (
     echo エラー: フォルダ名が入力されていません

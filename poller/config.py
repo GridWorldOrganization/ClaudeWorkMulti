@@ -261,7 +261,7 @@ ALL_MEMBER_IDS: set[str] = {str(m["account_id"]) for m in MEMBERS.values()}
 
 
 def find_member_key(member: dict[str, Any]) -> str | None:
-    """メンバー dict から MEMBERS 上のキー（例: "01_yokota"）を逆引きする"""
+    """メンバー dict から MEMBERS 上のキー（例: "01_yamada"）を逆引きする"""
     for k, m in MEMBERS.items():
         if m["account_id"] == member["account_id"]:
             return k
