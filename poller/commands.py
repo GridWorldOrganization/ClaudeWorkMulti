@@ -37,6 +37,7 @@ from poller.config import (
     MODEL_PRICING,
     REPLY_COOLDOWN_SECONDS,
     SCRIPT_DIR,
+    QUEUE_URL,
     SQS_WAIT_TIME_SECONDS,
     POLL_INTERVAL,
     TALK_MODES,
@@ -213,8 +214,7 @@ def handle_system() -> str:
             lines.append(f"  CLI種別: 検出失敗")
 
     lines.append(f"\n■ SQS")
-    queue_display = f"{SCRIPT_DIR}..." if not os.environ.get("SQS_QUEUE_URL") else os.environ.get("SQS_QUEUE_URL", "")
-    lines.append(f"  QUEUE_URL: {queue_display[:60]}..." if len(queue_display) > 60 else f"  QUEUE_URL: {queue_display}")
+    lines.append(f"  QUEUE_URL: {QUEUE_URL[:60]}..." if len(QUEUE_URL) > 60 else f"  QUEUE_URL: {QUEUE_URL}")
     if SQS_WAIT_TIME_SECONDS > 0:
         lines.append(f"  ポーリング: ロング（WaitTime={SQS_WAIT_TIME_SECONDS}秒）")
     else:

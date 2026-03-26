@@ -237,8 +237,9 @@ def load_talk_modes(member_dir: str) -> tuple[int, dict[str, int]]:
                     room_modes[rid.strip()] = int(mode.strip())
                 else:
                     default_mode = int(val)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"mode.env読み込みエラー: {mode_env}: {e}")
     return default_mode, room_modes
 
 
