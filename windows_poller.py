@@ -889,6 +889,86 @@ def handle_session_command(room_id):
     return "\n".join(lines)
 
 
+def handle_system_command():
+    """/system: システム全体の稼働状況・設定を報告する"""
+    import platform
+    import sys
+
+    lines = ["[info][title]/system[/title]"]
+
+    # 環境
+    lines.append("■ 環境")
+    lines.append(f"  OS: {platform.system()} {platform.release()} ({platform.machine()})")
+    lines.append(f"  Python: {sys.version.split()[0]}")
+    lines.append(f"  CWD: {SCRIPT_DIR}")
+
+    # AI 設定
+    lines.append(f"\n■ AI")
+    lines.append(f"  USE_DIRECT_API: {'API直接' if USE_DIRECT_API else 'CLI'}")
+    lines.append(f"  CLAUDE_MODEL: {CLAUDE_MODEL}")
+    lines.append(f"  CLAUDE_TIMEOUT: {CLAUDE_TIMEOUT}秒")
+    if USE_DIRECT_API:
+        lines.append(f"  ANTHROPIC_API_KEY: {'設定済' if ANTHROPIC_API_KEY else '未設定'}")
+    else:
+        lines.append(f"  CLAUDE_COMMAND: {CLAUDE_COMMAND}")
+
+    # SQS / ポーリング
+    lines.append(f"\n■ SQS")
+    lines.append(f"  QUEUE_URL: {QUEUE_URL[:60]}..." if len(QUEUE_URL) > 60 else f"  QUEUE_URL: {QUEUE_URL}")
+    if SQS_WAIT_TIME_SECONDS > 0:
+        lines.append(f"  ポーリング: ロング（WaitTime={SQS_WAIT_TIME_SECONDS}秒）")
+    else:
+        lines.append(f"  ポーリング: ショート（間隔={POLL_INTERVAL}秒）")
+
+    # 動作パラメータ
+    lines.append(f"\n■ パラメータ")
+    lines.append(f"  FOLLOWUP_WAIT_SECONDS: {FOLLOWUP_WAIT_SECONDS}秒")
+    lines.append(f"  MAX_AI_CONVERSATION_TURNS: {MAX_AI_CONVERSATION_TURNS}")
+    lines.append(f"  REPLY_COOLDOWN_SECONDS: {REPLY_COOLDOWN_SECONDS}秒")
+    lines.append(f"  CHATWORK_API_TIMEOUT: {CHATWORK_API_TIMEOUT}秒")
+
+    # メンバー
+    lines.append(f"\n■ メンバー: {len(MEMBERS)}名")
+    for key, member in MEMBERS.items():
+        token_status = "OK" if member["cw_token"] else "NG"
+        rooms_count = len(member.get("allowed_rooms", set()))
+        lines.append(f"  {member['name']} ({key}) token={token_status} rooms={rooms_count}")
+
+    # Google Workspace API
+    token_path = os.path.join(SCRIPT_DIR, "google_token.json")
+    client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+    google_email = os.environ.get("GOOGLE_EMAIL", "")
+    lines.append(f"\n■ Google Workspace API")
+    lines.append(f"  Email: {google_email or '未設定'}")
+    if not client_id:
+        lines.append(f"  OAuth: 未設定")
+    elif not os.path.exists(token_path):
+        lines.append(f"  OAuth: 設定済・未認証（check_gws.bat を実行）")
+    else:
+        lines.append(f"  OAuth: 認証済")
+    lines.append(f"  マイドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_MY_DRIVE else 'OFF'}")
+    lines.append(f"  共有ドライブ: {'ON' if GOOGLE_DRIVE_INCLUDE_SHARED else 'OFF'}")
+
+    # エラー報告
+    lines.append(f"\n■ エラー報告")
+    lines.append(f"  REPORTER_TOKEN: {'設定済' if CHATWORK_API_TOKEN_ERROR_REPORTER else '未設定'}")
+    lines.append(f"  ERROR_ROOM_ID: {CHATWORK_ERROR_ROOM_ID if CHATWORK_ERROR_ROOM_ID else '未設定'}")
+    lines.append(f"  MAINTENANCE_ROOM_ID: {MAINTENANCE_ROOM_ID if MAINTENANCE_ROOM_ID else '未設定'}")
+
+    # スレッド状態
+    active_count = 0
+    with _session_lock:
+        for state in _session_states.values():
+            if state["status"] == "running":
+                active_count += 1
+    lines.append(f"\n■ 実行状態")
+    lines.append(f"  AI実行中: {active_count}/{len(MEMBERS)}")
+    lines.append(f"  CLIプロセス追跡: {len(_active_processes)}件")
+
+    lines.append("[/info]")
+    return "\n".join(lines)
+
+
 def handle_bill_command():
     """/bill: 当月の Anthropic API 使用量と概算料金を表示する"""
     month_key, usage = _get_monthly_usage()
@@ -1417,6 +1497,12 @@ def process_message(body: dict):
         new_mode = int(talk_match.group(1))
         log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
         chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
+        return
+
+    # /system: システム情報表示
+    if raw_command == "/system":
+        log.info(f"/system コマンド検出: {member['name']} room={room_id}")
+        chatwork_post(member["cw_token"], room_id, handle_system_command())
         return
 
     # /bill: API使用量・料金表示
