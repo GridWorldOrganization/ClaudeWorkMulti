@@ -443,6 +443,12 @@ def process_message(body: dict[str, Any]) -> None:
 
     # --- AI 実行 ---
     ai_start_time = time.time()
+    notify_error(
+        f"AI実行開始 [{member['name']}]",
+        f"送信者: {sender_name}\nルーム: {room_id}\n"
+        f"モード: {talk_info['name']}\n"
+        f"本文: {message[:150]}",
+    )
     try:
         if member_key:
             with state.session_lock:
