@@ -93,7 +93,7 @@ ClaudeWorkMulti/
 | `CLAUDE_TIMEOUT` | — | `60` | AI応答タイムアウト・秒 |
 | `FOLLOWUP_WAIT_SECONDS` | — | `30` | AIが「確認します」等と返信した場合、この秒数待ってからルーム情報を収集し再返信する |
 | `MAX_AI_CONVERSATION_TURNS` | — | `10` | AI同士の会話の最大ターン数 |
-| `REPLY_COOLDOWN_SECONDS` | — | `15` | 連投防止クールダウン・秒 |
+| `REPLY_COOLDOWN_SECONDS` | — | `15` | 連投防止クールダウン・秒。同一メンバーが前回返信してからこの秒数経過するまで次の返信を待機する |
 | `MAINTENANCE_ROOM_ID` | — | — | メンテナンスルームID |
 
 ## 主な機能
