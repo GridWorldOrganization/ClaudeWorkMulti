@@ -86,20 +86,16 @@ def _drain_sqs_queue(sqs: Any) -> list[dict[str, Any]]:
 
 
 def _is_debug_room_message(body_data: dict[str, Any]) -> bool:
-    """デバッグルーム宛のメッセージか判定する"""
-    if not DEBUG_NOTICE_CHATWORK_ACCOUNT_ID or not DEBUG_NOTICE_CHATWORK_ROOM_ID:
+    """デバッグルームからのメッセージか判定する（ルームIDのみで判定）"""
+    if not DEBUG_NOTICE_CHATWORK_ROOM_ID:
         return False
     room_id = body_data.get("room_id", "")
-    message = body_data.get("body", "")
-    return (
-        str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
-        and (f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message
-             or f"[rp aid={DEBUG_NOTICE_CHATWORK_ACCOUNT_ID} " in message)
-    )
+    return str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
 
 
 def _process_debug_message(body_data: dict[str, Any], msg: dict[str, Any], sqs: Any) -> None:
     """デバッグルームのメッセージをロックなしで即時処理する"""
+    log.info(f"デバッグメッセージ処理開始: room={body_data.get('room_id', '')} body={str(body_data.get('body', ''))[:100]}")
     try:
         from poller.processor import process_message
         process_message(body_data)

@@ -366,13 +366,10 @@ def process_message(body: dict[str, Any]) -> None:
                           "/systemを検知しました。無視します。")
         return
 
-    # デバッグルーム宛のメッセージかチェック（[To:] または [rp] タグ）
+    # デバッグルームからのメッセージかチェック（ルームIDのみで判定）
     is_debug_msg = (
-        DEBUG_NOTICE_CHATWORK_ACCOUNT_ID
-        and DEBUG_NOTICE_CHATWORK_ROOM_ID
+        DEBUG_NOTICE_CHATWORK_ROOM_ID
         and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
-        and (f"[To:{DEBUG_NOTICE_CHATWORK_ACCOUNT_ID}]" in message
-             or f"[rp aid={DEBUG_NOTICE_CHATWORK_ACCOUNT_ID} " in message)
     )
 
     # デバッグアカウント宛の非コマンドメッセージ → セッション応答 or 無視（AIには渡さない）
