@@ -442,6 +442,7 @@ def process_message(body: dict[str, Any]) -> None:
         prompt += f"\n\n{google_content}"
 
     # --- AI 実行 ---
+    ai_start_time = time.time()
     try:
         if member_key:
             with state.session_lock:
@@ -451,6 +452,7 @@ def process_message(body: dict[str, Any]) -> None:
                 }
 
         result = run_ai(prompt, member_dir, member["name"])
+        ai_elapsed = time.time() - ai_start_time
         reply = result.output.strip() if result.output else ""
 
         if result.returncode == 0 and reply:
@@ -459,6 +461,16 @@ def process_message(body: dict[str, Any]) -> None:
 
             reply = _apply_reply_tag(reply, member["cw_token"], room_id, sender, message_id)
             chatwork_post(member["cw_token"], room_id, reply)
+
+            # デバッグ通知ルームにAI実行ログを投稿
+            notify_error(
+                f"AI実行完了 [{member['name']}]",
+                f"送信者: {sender_name}\nルーム: {room_id}\n"
+                f"モード: {talk_info['name']}\n"
+                f"応答時間: {ai_elapsed:.1f}秒\n"
+                f"本文: {message[:100]}\n"
+                f"返信: {raw_reply[:100]}",
+            )
 
             _save_chat_history(member_dir, room_id, sender_name, message, raw_reply, member["name"])
             if member_key:
