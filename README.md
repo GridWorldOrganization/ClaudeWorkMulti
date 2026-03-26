@@ -128,6 +128,12 @@ ClaudeWorkMulti/
 | `FOLLOWUP_WAIT_SECONDS` | — | `30` | AIが「確認します」等と返信した場合、この秒数待ってからルーム情報を収集し再返信する |
 | `MAX_AI_CONVERSATION_TURNS` | — | `10` | AI同士の会話の最大ターン数 |
 | `REPLY_COOLDOWN_SECONDS` | — | `15` | 連投防止クールダウン・秒。同一メンバーが前回返信してからこの秒数経過するまで次の返信を待機する |
+| `CHATWORK_API_TIMEOUT` | — | `30` | ChatWork API 呼び出しのタイムアウト・秒（コード内定数） |
+| `GOOGLE_EMAIL` | — | — | Google アカウントのメールアドレス |
+| `GOOGLE_OAUTH_CLIENT_ID` | — | — | Google OAuth クライアント ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | — | — | Google OAuth クライアントシークレット |
+| `GOOGLE_DRIVE_INCLUDE_MY_DRIVE` | — | `0` | マイドライブを参照対象にするか（0=しない, 1=する） |
+| `GOOGLE_DRIVE_INCLUDE_SHARED` | — | `1` | 共有ドライブを参照対象にするか（0=しない, 1=する） |
 
 ## 主な機能
 
