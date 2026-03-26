@@ -113,9 +113,8 @@ def _process_debug_message(body_data: dict[str, Any], msg: dict[str, Any], sqs: 
 
 
 def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
-    """メッセージをメンバーごとにグループ化し、並列スレッドで処理する"""
+    """メッセージをメンバーごとにグループ化し、並列スレッドで処理する（ノンブロッキング）"""
     member_messages: dict[str, list[tuple[dict, dict]]] = {}
-    threads: list[threading.Thread] = []
 
     for msg in all_messages:
         try:
@@ -127,7 +126,6 @@ def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
                     target=_process_debug_message, args=(body_data, msg, sqs), daemon=True,
                 )
                 t.start()
-                threads.append(t)
                 log.info(f"デバッグメッセージ即時処理スレッド起動")
                 continue
 
@@ -143,14 +141,7 @@ def _dispatch_messages(all_messages: list[dict[str, Any]], sqs: Any) -> None:
     for mk, msg_list in member_messages.items():
         t = threading.Thread(target=process_member_batch, args=(mk, msg_list, sqs), daemon=True)
         t.start()
-        threads.append(t)
         log.info(f"バッチスレッド起動: {mk} ({len(msg_list)}件)")
-
-    thread_timeout = CLAUDE_TIMEOUT * 2 + FOLLOWUP_WAIT_SECONDS + REPLY_COOLDOWN_SECONDS + 60
-    for t in threads:
-        t.join(timeout=thread_timeout)
-        if t.is_alive():
-            log.error(f"スレッドがタイムアウト({thread_timeout}秒)しました。次のポーリングに進みます。")
 
 
 # =============================================================================
