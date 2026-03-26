@@ -1822,44 +1822,30 @@ def main():
     # --- ポーリングループ ---
     while not _shutdown_requested:
         try:
-            # === 待機フェーズ: SQS ロングポーリングでメッセージを待つ ===
-            all_messages = _drain_sqs_queue(sqs, wait_first=True)
+            all_messages = _drain_sqs_queue(sqs)
             if not all_messages:
+                time.sleep(POLL_INTERVAL)
                 continue
 
-            # === アクティブウィンドウ: メッセージがある限り処理し続ける ===
-            while all_messages and not _shutdown_requested:
-                log.info(f"キュー読み込み完了: 合計{len(all_messages)}件")
-                _dispatch_messages(all_messages, sqs)
-
-                # 処理完了後、CLAUDE_TIMEOUT 秒間ショートポーリングで次のメッセージを待つ
-                active_start = time.time()
-                all_messages = []
-                while not _shutdown_requested:
-                    remaining = CLAUDE_TIMEOUT - (time.time() - active_start)
-                    if remaining <= 0:
-                        log.info(f"アクティブウィンドウ終了（{CLAUDE_TIMEOUT}秒経過）→ ロングポーリングに戻る")
-                        break
-                    time.sleep(POLL_INTERVAL)
-                    all_messages = _drain_sqs_queue(sqs, wait_first=False)
-                    if all_messages:
-                        log.info(f"アクティブウィンドウ: 新規メッセージ{len(all_messages)}件検出 → タイマーリセット")
-                        break  # 内側ループを抜けて処理ループへ
+            log.info(f"キュー読み込み完了: 合計{len(all_messages)}件")
+            _dispatch_messages(all_messages, sqs)
 
         except Exception as e:
             log.error(f"ポーリングエラー: {e}")
             time.sleep(10)
             continue
 
+        time.sleep(POLL_INTERVAL)
+
     log.info("=== ChatWork Webhook Poller 停止 ===")
 
 
-def _drain_sqs_queue(sqs, wait_first=True):
-    """SQS キューからメッセージを全件読み込む。wait_first=True の場合、最初のポーリングで WaitTimeSeconds を使用"""
+def _drain_sqs_queue(sqs):
+    """SQS キューからメッセージを全件読み込む。最初のポーリングは SQS_WAIT_TIME_SECONDS を使用"""
     all_messages = []
     is_first = True
     while True:
-        wait_time = (SQS_WAIT_TIME_SECONDS if wait_first and is_first else 0)
+        wait_time = SQS_WAIT_TIME_SECONDS if is_first else 0
         res = sqs.receive_message(
             QueueUrl=QUEUE_URL,
             MaxNumberOfMessages=10,
