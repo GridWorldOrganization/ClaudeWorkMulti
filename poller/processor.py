@@ -372,6 +372,13 @@ def process_message(body: dict[str, Any]) -> None:
         and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
     )
 
+    # デバッグルーム内のグリ姉自身の発言は無視（通知の自己応答ループ防止）
+    if is_debug_msg:
+        sender_id = body.get("sender_account_id", "")
+        if str(sender_id) == str(DEBUG_NOTICE_CHATWORK_ACCOUNT_ID):
+            log.info(f"デバッグルーム: グリ姉自身の発言をスキップ")
+            return
+
     # デバッグアカウント宛の非コマンドメッセージ → セッション応答 or 無視（AIには渡さない）
     if is_debug_msg and not is_command:
         session_input = re.sub(
