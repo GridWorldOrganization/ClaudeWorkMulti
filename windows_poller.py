@@ -502,7 +502,10 @@ def run_claude_cli(prompt, cwd, member_name):
 
     try:
         stdout, stderr = proc.communicate(timeout=CLAUDE_TIMEOUT)
-        log.info(f"Claude Code プロセス終了: pid={proc.pid} exit={proc.returncode}")
+        if proc.poll() is not None:
+            log.info(f"Claude Code プロセス終了確認済: pid={proc.pid} exit={proc.returncode}")
+        else:
+            log.warning(f"Claude Code プロセスがまだ生存: pid={proc.pid}")
         log.info(f"<<< {_ai_mode_label()} 実行完了 [{member_name}] (exit={proc.returncode})")
         return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
