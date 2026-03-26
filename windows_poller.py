@@ -1840,6 +1840,26 @@ def main():
     log.info(f"  USE_DIRECT_API = {'API直接' if USE_DIRECT_API else 'CLI'}")
     if not USE_DIRECT_API:
         log.info(f"  CLAUDE_COMMAND = {CLAUDE_COMMAND}")
+        # where / which で実際のパスを表示
+        try:
+            where_cmd = "where" if os.name == "nt" else "which"
+            where_result = subprocess.run(
+                [where_cmd, CLAUDE_COMMAND],
+                capture_output=True, text=True, timeout=5,
+            )
+            if where_result.returncode == 0:
+                cmd_path = where_result.stdout.strip().split("\n")[0]
+                if cmd_path.endswith(".exe"):
+                    cli_type = "Native"
+                elif cmd_path.endswith(".cmd"):
+                    cli_type = "npm"
+                else:
+                    cli_type = "不明"
+                log.info(f"  CLAUDE_PATH = {cmd_path} [{cli_type}]")
+            else:
+                log.warning(f"  CLAUDE_PATH = 検出失敗（'{CLAUDE_COMMAND}' が PATH に見つかりません）")
+        except Exception as e:
+            log.warning(f"  CLAUDE_PATH = 検出失敗（{e}）")
     log.info(f"  CLAUDE_MODEL = {CLAUDE_MODEL}")
     log.info(f"  CLAUDE_TIMEOUT = {CLAUDE_TIMEOUT}秒")
     log.info(f"  FOLLOWUP_WAIT_SECONDS = {FOLLOWUP_WAIT_SECONDS}秒")
