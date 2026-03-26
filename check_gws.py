@@ -106,7 +106,7 @@ def run_spreadsheet_test(creds):
         print("[5] Write test data")
         sheets.spreadsheets().values().update(
             spreadsheetId=sheet_id,
-            range="A!A1:B2",
+            range="A1:B2",
             valueInputOption="RAW",
             body={"values": [["test_key", "test_value"], ["hello", "world"]]},
         ).execute()
@@ -116,7 +116,7 @@ def run_spreadsheet_test(creds):
         print("[6] Read test data")
         result = sheets.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range="A!A1:B2",
+            range="A1:B2",
         ).execute()
         values = result.get("values", [])
         if values == [["test_key", "test_value"], ["hello", "world"]]:
