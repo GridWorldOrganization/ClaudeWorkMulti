@@ -1455,11 +1455,10 @@ def process_message(body: dict):
         log.info(f"自分自身の発言のためスキップ: {member['name']}")
         return
 
-    # --- コマンド判定（メンテナンスコマンドはホワイトリスト前に処理）---
+    # --- コマンド判定（CHATWORK_ERROR_ROOM_ID 内のみ、AI不使用）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
 
-    # /status, /session: メンテナンスルーム限定（ホワイトリスト不問）
-    if MAINTENANCE_ROOM_ID and str(room_id) == MAINTENANCE_ROOM_ID:
+    if CHATWORK_ERROR_ROOM_ID and str(room_id) == str(CHATWORK_ERROR_ROOM_ID):
         if raw_command == "/status":
             log.info(f"/status コマンド検出: {member['name']}")
             chatwork_post(member["cw_token"], room_id, handle_status_command(member, room_id))
@@ -1467,6 +1466,28 @@ def process_message(body: dict):
         if raw_command == "/session":
             log.info("/session コマンド検出")
             chatwork_post(member["cw_token"], room_id, handle_session_command(room_id))
+            return
+        if raw_command == "/talk":
+            log.info(f"/talk コマンド検出（状態表示）: {member['name']} room={room_id}")
+            chatwork_post(member["cw_token"], room_id, handle_talk_status(member, room_id))
+            return
+        talk_match = re.match(r'^/talk\s+(\d)$', raw_command)
+        if talk_match:
+            new_mode = int(talk_match.group(1))
+            log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
+            chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
+            return
+        if raw_command == "/system":
+            log.info(f"/system コマンド検出: {member['name']} room={room_id}")
+            chatwork_post(member["cw_token"], room_id, handle_system_command())
+            return
+        if raw_command == "/bill":
+            log.info(f"/bill コマンド検出: {member['name']} room={room_id}")
+            chatwork_post(member["cw_token"], room_id, handle_bill_command())
+            return
+        if raw_command == "/gws":
+            log.info(f"/gws コマンド検出: {member['name']} room={room_id}")
+            chatwork_post(member["cw_token"], room_id, handle_gws_command())
             return
 
     # --- ルームホワイトリスト判定 ---
@@ -1483,38 +1504,6 @@ def process_message(body: dict):
                 f.write(f"[{now}] room={room_id} sender={sender_name}(ID:{sender}) msg={message[:200]}\n")
         except Exception as e:
             log.error(f"拒否ログ書き込みエラー: {e}")
-        return
-
-    # --- コマンド判定（許可ルーム内のみ、AI不使用）---
-
-    # /talk: 会話モード
-    if raw_command == "/talk":
-        log.info(f"/talk コマンド検出（状態表示）: {member['name']} room={room_id}")
-        chatwork_post(member["cw_token"], room_id, handle_talk_status(member, room_id))
-        return
-    talk_match = re.match(r'^/talk\s+(\d)$', raw_command)
-    if talk_match:
-        new_mode = int(talk_match.group(1))
-        log.info(f"/talk {new_mode} コマンド検出: {member['name']} room={room_id}")
-        chatwork_post(member["cw_token"], room_id, handle_talk_command(member, room_id, new_mode))
-        return
-
-    # /system: システム情報表示
-    if raw_command == "/system":
-        log.info(f"/system コマンド検出: {member['name']} room={room_id}")
-        chatwork_post(member["cw_token"], room_id, handle_system_command())
-        return
-
-    # /bill: API使用量・料金表示
-    if raw_command == "/bill":
-        log.info(f"/bill コマンド検出: {member['name']} room={room_id}")
-        chatwork_post(member["cw_token"], room_id, handle_bill_command())
-        return
-
-    # /gws: Google Workspace API 接続テスト
-    if raw_command == "/gws":
-        log.info(f"/gws コマンド検出: {member['name']} room={room_id}")
-        chatwork_post(member["cw_token"], room_id, handle_gws_command())
         return
 
     # --- AI 同士の会話制御 ---
