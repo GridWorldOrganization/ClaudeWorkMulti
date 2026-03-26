@@ -290,6 +290,13 @@ def process_message(body: dict[str, Any]) -> None:
 
     # --- コマンド判定（指定ルーム + 指定メンバー宛のみ）---
     raw_command = re.sub(r'\[To:\d+\][^\n]*\n', '', message.strip()).strip()
+    _COMMAND_KEYWORDS = {"/status", "/session", "/talk", "/sysinfo", "/bill", "/gws"}
+    is_command = raw_command in _COMMAND_KEYWORDS or re.match(r'^/talk\s+\d$', raw_command)
+
+    # コマンドが指定メンバー以外に送られた場合は無視（AIにも渡さない）
+    if is_command and DEBUG_NOTICE_CHATWORK_ACCOUNT_ID and member["account_id"] != DEBUG_NOTICE_CHATWORK_ACCOUNT_ID:
+        log.info(f"コマンド '{raw_command}' をデバッグ専用メンバー以外({member['name']})が受信 → 無視")
+        return
 
     is_debug_room = DEBUG_NOTICE_CHATWORK_ROOM_ID and str(room_id) == str(DEBUG_NOTICE_CHATWORK_ROOM_ID)
     is_debug_member = (not DEBUG_NOTICE_CHATWORK_ACCOUNT_ID) or (member["account_id"] == DEBUG_NOTICE_CHATWORK_ACCOUNT_ID)
